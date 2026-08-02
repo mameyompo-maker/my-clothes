@@ -97,9 +97,9 @@ firebase deploy --only firestore:rules,storage
    同じものを使い回すのではなく新規に発行し、紐づけ先のGoogle Cloudプロジェクトは
    `my-clothes-46c81`(実際のプロジェクトIDに読み替え)を選ぶと、課金・利用状況がこのアプリの
    Firebaseリソースとまとまって把握しやすい。
-2. デフォルトでは `functions/src/index.ts` の `GEMINI_IMAGE_MODEL` に高品質な
-   `gemini-3-pro-image`(Nano Banana Pro)を設定済み。コストを抑えたい場合は
-   `gemini-3.1-flash-lite-image`(安価)や `gemini-3.1-flash-image`(標準)に変更できる。
+2. デフォルトでは `functions/src/index.ts` の `GEMINI_IMAGE_MODEL` に標準グレードの
+   `gemini-3.1-flash-image` を設定済み。コストを抑えたい場合は `gemini-3.1-flash-lite-image`
+   (安価)に、画質を上げたい場合は `gemini-3-pro-image`(高品質・高コスト)に変更できる。
    モデル名は変わりやすいので、デプロイ前に https://ai.google.dev/gemini-api/docs/models で
    最新の識別子を確認すること。
 3. シークレットを登録してデプロイ:

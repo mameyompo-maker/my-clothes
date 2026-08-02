@@ -9,12 +9,13 @@ const db = getFirestore();
 
 const geminiApiKey = defineSecret("GEMINI_API_KEY");
 
-// 2026-08時点でのNano Banana系モデル(画像編集対応)。Kaz指定によりPro版(高品質・高コスト)を
-// デフォルトにしている。コストを抑えたい場合は functions/.env で GEMINI_IMAGE_MODEL を
-// "gemini-3.1-flash-lite-image"(安価)や "gemini-3.1-flash-image"(標準)に上書きする。
-// モデル名は変更されやすいので、デプロイ前に https://ai.google.dev/gemini-api/docs/models で
-// 最新の識別子を必ず確認すること。無料枠はなく、Google Cloud側の課金設定が必要。
-const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image";
+// 2026-08時点でのNano Banana系モデル(画像編集対応)。Kaz指定により標準グレードの
+// gemini-3.1-flash-imageをデフォルトにしている。コストを抑えたい場合は functions/.env で
+// GEMINI_IMAGE_MODEL を "gemini-3.1-flash-lite-image"(安価)に、画質を上げたい場合は
+// "gemini-3-pro-image"(高品質・高コスト)に上書きする。モデル名は変更されやすいので、
+// デプロイ前に https://ai.google.dev/gemini-api/docs/models で最新の識別子を必ず確認すること。
+// 無料枠はなく、Google Cloud側の課金設定が必要。
+const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image";
 
 interface ClosetItemDoc {
   imageUrl: string;
