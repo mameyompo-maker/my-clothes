@@ -71,11 +71,18 @@ firebase deploy --only firestore:rules,storage:rules
 
 ### 5. Gemini APIキーの設定とCloud Functionsのデプロイ
 
+**事前に**: Cloud Functions(第2世代)は無料のSparkプランでは動かず、従量課金のBlazeプランへの
+アップグレードが必要(Firebaseコンソール左下 → プランをアップグレード)。使った分だけの課金で、
+この規模のアプリなら無料枠内に収まることが多いが、支払い方法の登録は必須。
+
 1. [Google AI Studio](https://aistudio.google.com/) などでGemini APIキーを取得。
-2. デプロイ前に、画像編集(nano banana系)に対応した最新のGeminiモデル名を
-   https://ai.google.dev/gemini-api/docs/models で確認する(`functions/src/index.ts` の
-   `GEMINI_IMAGE_MODEL` のデフォルト値はこの原稿作成時点の推測であり、変わっている可能性がある)。
-3. シークレットを登録してデプロイ:
+2. 画像生成モデル(Nano Banana系)には**無料枠がなく**、キーを発行したGoogle Cloud
+   プロジェクトに課金設定(請求先アカウントの紐付け)が必要(2026-08時点で確認済み)。
+3. デフォルトでは `functions/src/index.ts` の `GEMINI_IMAGE_MODEL` に最も安価な
+   `gemini-3.1-flash-lite-image` を設定済み。画質を上げたい場合は `gemini-3.1-flash-image`
+   (標準)や `gemini-3-pro-image`(高品質・高コスト)に変更できる。モデル名は変わりやすいので
+   デプロイ前に https://ai.google.dev/gemini-api/docs/models で最新の識別子を確認すること。
+4. シークレットを登録してデプロイ:
 
 ```bash
 firebase functions:secrets:set GEMINI_API_KEY
@@ -84,6 +91,16 @@ npm install
 cd ..
 firebase deploy --only functions
 ```
+
+### 6. 友達も使えるように公開する(Vercel推奨)
+
+`localhost:3000` は自分のPCからしか開けないため、友達に投票してもらうには公開URLが必要。
+
+1. [Vercel](https://vercel.com/)にGitHubアカウントでログインし、このリポジトリをImport。
+2. Environment Variables に `.env.local` と同じ `NEXT_PUBLIC_FIREBASE_*` を登録してDeploy。
+3. 発行されたURL(例: `my-clothes.vercel.app`)をFirebaseコンソール →
+   **Authentication → Settings → 承認済みドメイン** に追加する
+   (これを忘れるとVercel上のGoogleサインインが失敗する)。
 
 ## 現状の実装状況 / 今後のTODO
 
