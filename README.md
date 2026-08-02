@@ -14,10 +14,16 @@
 ## 技術スタック
 
 - Next.js 16 (App Router, TypeScript, Tailwind CSS v4) — Web PWA
-- Firebase (Authentication / Firestore / Storage) — **無料のSparkプランだけで動く**
-- Firebase Cloud Functions + Gemini API(画像編集モデル)によるコーデ合成 — **完全に任意。使う場合のみ課金設定が必要**
+- Firebase (Authentication / Firestore / Storage)
+- Firebase Cloud Functions + Gemini API(画像編集モデル)によるコーデ合成 — **任意。使う場合のみ追加の課金設定が必要**
 
-友達招待は Cloud Functions を使わず、Firestore のセキュリティルールだけで「招待コードを知っている人が自分自身を相手の友達リストに追加する」処理を完結させている(`src/lib/firestore.ts` の `redeemInviteCode`)。そのため **AI合成を使わない限り、このアプリはFirebaseの無料枠だけで最後まで動作する**。
+友達招待は Cloud Functions を使わず、Firestore のセキュリティルールだけで「招待コードを知っている人が自分自身を相手の友達リストに追加する」処理を完結させている(`src/lib/firestore.ts` の `redeemInviteCode`)。
+
+### 課金プランについて(重要)
+
+Firebase には無料の **Spark プラン**と、従量課金の **Blaze プラン**があるが、**2026年2月3日以降、Cloud Storage(写真の保存)はBlazeプランでないと一切使えない**(Sparkのままだとバケットへのアクセスが402/403エラーになる。Firestore/Authentication/Hostingは引き続きSparkのままカード登録なしで無料利用できる)。
+
+このアプリはクローゼットの写真や顔パターンをStorageに保存するため、**Blazeプランへのアップグレード(支払い方法の登録)が実質必須**になる。ただしBlazeにしても無料枠(ストレージ5GB、ダウンロード1日1GBなど)はそのまま適用され、それを超えない限り請求額は0円。アップロード前にブラウザ側で画像を自動圧縮する処理(`src/lib/image.ts`)も入れてあり、個人〜少人数規模なら無料枠に収まりやすい。
 
 ## ディレクトリ構成(抜粋)
 
@@ -25,7 +31,7 @@
 src/
   app/            App Router のページ(onboarding / closet / create / feed / profile)
   components/     AuthProvider, BottomNav, AppShell などの共通UI
-  lib/            Firebase クライアント初期化・Firestoreヘルパー(友達招待もここ)・Cloud Functions呼び出し
+  lib/            Firebase クライアント初期化・Firestoreヘルパー(友達招待もここ)・画像圧縮・Cloud Functions呼び出し
   types/          データモデルの型定義
   data/           初期シードデータ(服10種)
 functions/        Firebase Cloud Functions(Gemini合成のみ。任意機能)
@@ -33,16 +39,18 @@ firestore.rules   Firestore セキュリティルール
 storage.rules     Storage セキュリティルール
 ```
 
-## セットアップ手順(無料枠だけで試す)
+## セットアップ手順
 
 もっと細かいクリック単位の手順は、Kazさん専用に作った [セットアップガイド(チェックリスト付き)](https://claude.ai/code/artifact/fae4ed4a-4308-47dd-b9a3-9ff2334e3eb3) も参照。
 
 ### 1. Firebaseプロジェクトを作成
 
-1. [Firebaseコンソール](https://console.firebase.google.com/)で新規プロジェクトを作成(Sparkプラン=無料のままでよい)。
-2. **Authentication** → Sign-in method で **Google** を有効化。
-3. **Firestore Database** を作成(本番モードでOK。ルールは後述の手順で反映する)。
-4. **Storage** を作成。
+1. [Firebaseコンソール](https://console.firebase.google.com/)で新規プロジェクトを作成。
+2. **Authentication** → Sign-in method で **Google** を有効化(Sparkのままで可)。
+3. **Firestore Database** を作成(本番モードでOK。ルールは後述の手順で反映する。Sparkのままで可)。
+4. **Storage** を作成しようとすると、プランのアップグレードを求められる。案内に従って
+   **Blazeプラン(従量課金)** へアップグレードする(支払い方法の登録が必要。前述の通り、
+   個人〜少人数規模なら実際の請求は0円で収まりやすい)。
 5. プロジェクトの設定 → マイアプリ → ウェブアプリを追加し、表示された設定値を控える。
 
 ### 2. Webアプリ側の環境変数
@@ -71,7 +79,7 @@ cp .firebaserc.example .firebaserc   # "your-firebase-project-id" を実際の�
 firebase deploy --only firestore:rules,storage:rules
 ```
 
-ここまでで、クローゼット登録・招待コードでの友達追加・コーデ投稿・2択投票まで一通り動く(AI合成だけ「準備中」のまま服の写真がそのまま表示される)。**課金設定は一切不要。**
+ここまでで、クローゼット登録・招待コードでの友達追加・コーデ投稿・2択投票まで一通り動く(AI合成だけ「準備中」のまま服の写真がそのまま表示される)。
 
 ### 5. 少人数で試す
 
@@ -79,19 +87,18 @@ firebase deploy --only firestore:rules,storage:rules
 `Network: http://192.168.x.x:3000` のアドレスをそのまま使える。離れた相手と試したくなったら、後述の
 「Vercelで公開する」を行う(これも無料)。
 
-## AI合成を有効化する(任意・課金あり)
+## AI合成を有効化する(任意)
 
 服+顔写真を1枚のコーデ写真に合成したくなったら、ここから先を行う。**Gemini
-の画像生成には無料枠が一切なく**(2026-08時点で公式ドキュメントで確認済み)、Firebase
-Cloud Functions(第2世代)も無料のSparkプランでは動かないため、**この機能だけ**支払い方法の登録が必要になる。
+の画像生成には無料枠が一切なく**(2026-08時点で公式ドキュメントで確認済み)、課金設定は
+すでに前述のBlazeアップグレードで済んでいるはずなので、ここでは主にAPIキーの取得が中心。
 
-1. Firebaseコンソール左下から **Blazeプラン(従量課金)** へアップグレード。基本料金はなく、使った分だけの課金。
-2. [Google AI Studio](https://aistudio.google.com/) でGemini APIキーを取得。
-3. デフォルトでは `functions/src/index.ts` の `GEMINI_IMAGE_MODEL` に最も安価な
+1. [Google AI Studio](https://aistudio.google.com/) でGemini APIキーを取得。
+2. デフォルトでは `functions/src/index.ts` の `GEMINI_IMAGE_MODEL` に最も安価な
    `gemini-3.1-flash-lite-image` を設定済み。画質を上げたい場合は `gemini-3.1-flash-image`
    (標準)や `gemini-3-pro-image`(高品質・高コスト)に変更できる。モデル名は変わりやすいので
    デプロイ前に https://ai.google.dev/gemini-api/docs/models で最新の識別子を確認すること。
-4. シークレットを登録してデプロイ:
+3. シークレットを登録してデプロイ:
 
 ```bash
 firebase functions:secrets:set GEMINI_API_KEY
@@ -115,7 +122,7 @@ Vercelの無料枠(Hobbyプラン)で公開できる。課金は発生しない�
 
 ## 現状の実装状況 / 今後のTODO
 
-- 画面・データモデル・Firestore/Storageルールは実装済みで、無料枠の範囲は動作確認できる想定(実際のFirebaseプロジェクトでの通し確認はこれから)。AI合成(Cloud Functions + Gemini)は課金設定が要るため未検証。
+- 画面・データモデル・Firestore/Storageルールは実装済み。実際のFirebaseプロジェクトでの通し確認はこれから。AI合成(Cloud Functions + Gemini)はAPIキー未設定のため未検証。
 - 通知機能は今回のスコープ外(投票状況はアプリを開いたときに確認する想定)。
 - 認証はGoogleサインインのみ実装。他の方式が必要な場合は `src/components/AuthProvider.tsx` を拡張してください。
 - PWAのオフライン対応(Service Worker)は未実装。マニフェスト(`src/app/manifest.ts`)とアイコンのみ用意済み。

@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { addClosetItem } from "@/lib/firestore";
+import { compressImage } from "@/lib/image";
 import { CLOSET_CATEGORIES, type ClosetCategory } from "@/types/models";
 import { IconCamera, IconChevronLeft } from "@/components/icons";
 
@@ -31,7 +32,8 @@ export default function AddClosetItemPage() {
     setSaving(true);
     setError("");
     try {
-      await addClosetItem(user.uid, category, label.trim(), file);
+      const compressed = await compressImage(file);
+      await addClosetItem(user.uid, category, label.trim(), compressed);
       router.push("/closet");
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存に失敗しました。");

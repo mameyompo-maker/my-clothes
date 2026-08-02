@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useAuth } from "@/components/AuthProvider";
 import { addFacePattern, getFriendProfiles, listFacePatterns, MAX_FACE_PATTERNS } from "@/lib/firestore";
+import { compressImage } from "@/lib/image";
 import type { FacePattern, UserProfile } from "@/types/models";
 import { IconCamera, IconCheck, IconUsers } from "@/components/icons";
 
@@ -40,7 +41,8 @@ export default function ProfilePage() {
     setUploading(true);
     try {
       const label = `パターン${faces.length + 1}`;
-      const created = await addFacePattern(user.uid, label, file);
+      const compressed = await compressImage(file);
+      const created = await addFacePattern(user.uid, label, compressed);
       setFaces((prev) => [...prev, created]);
     } finally {
       setUploading(false);

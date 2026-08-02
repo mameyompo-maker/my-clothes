@@ -12,6 +12,7 @@ import {
   uploadImage,
 } from "@/lib/firestore";
 import { composeOutfitImage } from "@/lib/functions";
+import { compressImage } from "@/lib/image";
 import { CLOSET_CATEGORIES, type ClosetCategory, type ClosetItem, type FacePattern, type OutfitCandidate, type UserProfile } from "@/types/models";
 import { IconCamera } from "@/components/icons";
 
@@ -110,7 +111,8 @@ export default function CreatePostPage() {
       for (const d of drafts) {
         let liveCaptureUrl: string | null = null;
         if (d.liveCaptureFile) {
-          liveCaptureUrl = await uploadImage(`outfits/${user.uid}/${crypto.randomUUID()}.jpg`, d.liveCaptureFile);
+          const compressed = await compressImage(d.liveCaptureFile);
+          liveCaptureUrl = await uploadImage(`outfits/${user.uid}/${crypto.randomUUID()}.jpg`, compressed);
         }
         candidates.push({
           itemIds: Object.values(d.itemIdsByCategory) as string[],
