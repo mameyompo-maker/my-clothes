@@ -124,6 +124,24 @@ Vercelの無料枠(Hobbyプラン)で公開できる。課金は発生しない�
    **Authentication → Settings → 承認済みドメイン** に追加する
    (これを忘れるとVercel上のGoogleサインインが失敗する)。
 
+### AI合成の現状(2026-08-03 時点)
+
+**コード側の不具合は解消済みだが、Gemini の支払いが止まっているため合成は実行できない。**
+
+- 過去に一度も動いていなかった原因は2つ。①クライアントが `asia-northeast1`、関数が `us-central1` に
+  デプロイされていてエンドポイントが存在しなかった ②Secret Manager の `GEMINI_API_KEY` が壊れた値
+  (32文字・`AIza`始まりでない・空白混入)で `API_KEY_INVALID` だった。いずれも修正済み。
+- 残る障害は課金のみ。Gemini API は AI Studio 側の**前払いクレジット**で動いており、それが枯渇している
+  (`429 RESOURCE_EXHAUSTED: Your prepayment credits are depleted`)。Firebase の Blaze 課金とは別勘定。
+  https://ai.studio/projects でクレジットを追加すれば、コード変更なしで動き出す。
+- **合成が無くてもアプリは完結する。** `src/components/OutfitCard.tsx` が、合成画像が無い場合に
+  撮影した顔写真と選んだ服をボード状に並べて表示する。顔写真が無駄にならないようにするための作り。
+
+### おすすめ提案について
+
+`src/lib/recommend.ts` は外部APIを使わない。季節・本人の好きなジャンル・最後に着てからの日数だけで
+スコアリングしている。Gemini の課金状況に関係なく動き、費用もかからない。
+
 ## 現状の実装状況 / 今後のTODO
 
 - 画面・データモデル・Firestore/Storageルールは実装済み。実際のFirebaseプロジェクトでの通し確認はこれから。AI合成(Cloud Functions + Gemini)はAPIキー未設定のため未検証。
