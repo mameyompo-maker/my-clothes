@@ -93,11 +93,15 @@ firebase deploy --only firestore:rules,storage
 の画像生成には無料枠が一切なく**(2026-08時点で公式ドキュメントで確認済み)、課金設定は
 すでに前述のBlazeアップグレードで済んでいるはずなので、ここでは主にAPIキーの取得が中心。
 
-1. [Google AI Studio](https://aistudio.google.com/) でGemini APIキーを取得。
-2. デフォルトでは `functions/src/index.ts` の `GEMINI_IMAGE_MODEL` に最も安価な
-   `gemini-3.1-flash-lite-image` を設定済み。画質を上げたい場合は `gemini-3.1-flash-image`
-   (標準)や `gemini-3-pro-image`(高品質・高コスト)に変更できる。モデル名は変わりやすいので
-   デプロイ前に https://ai.google.dev/gemini-api/docs/models で最新の識別子を確認すること。
+1. [Google AI Studio](https://aistudio.google.com/) でGemini APIキーを取得。既存の汎用キーと
+   同じものを使い回すのではなく新規に発行し、紐づけ先のGoogle Cloudプロジェクトは
+   `my-clothes-46c81`(実際のプロジェクトIDに読み替え)を選ぶと、課金・利用状況がこのアプリの
+   Firebaseリソースとまとまって把握しやすい。
+2. デフォルトでは `functions/src/index.ts` の `GEMINI_IMAGE_MODEL` に高品質な
+   `gemini-3-pro-image`(Nano Banana Pro)を設定済み。コストを抑えたい場合は
+   `gemini-3.1-flash-lite-image`(安価)や `gemini-3.1-flash-image`(標準)に変更できる。
+   モデル名は変わりやすいので、デプロイ前に https://ai.google.dev/gemini-api/docs/models で
+   最新の識別子を確認すること。
 3. シークレットを登録してデプロイ:
 
 ```bash
