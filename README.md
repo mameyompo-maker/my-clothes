@@ -76,7 +76,7 @@ npm run dev
 npm install -g firebase-tools   # 未インストールの場合
 firebase login
 cp .firebaserc.example .firebaserc   # "your-firebase-project-id" を実際のプロジェクトIDに書き換え
-firebase deploy --only firestore:rules,storage:rules
+firebase deploy --only firestore:rules,storage
 ```
 
 ここまでで、クローゼット登録・招待コードでの友達追加・コーデ投稿・2択投票まで一通り動く(AI合成だけ「準備中」のまま服の写真がそのまま表示される)。
