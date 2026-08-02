@@ -3,8 +3,7 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { redeemInviteCode } from "@/lib/functions";
-import { addSeedClosetItems, listClosetItems } from "@/lib/firestore";
+import { addSeedClosetItems, listClosetItems, redeemInviteCode } from "@/lib/firestore";
 import { SEED_CLOSET_ITEMS } from "@/data/seedClosetItems";
 
 export default function OnboardingPage() {
@@ -27,10 +26,10 @@ function OnboardingContent() {
     setStatus("signing-in");
     setErrorMessage("");
     try {
-      await signInWithGoogle();
-      await seedClosetIfEmpty();
+      const signedInUser = await signInWithGoogle();
+      await seedClosetIfEmpty(signedInUser.uid);
       if (code.trim()) {
-        await tryRedeem(code.trim());
+        await tryRedeem(signedInUser.uid, code.trim());
       } else {
         setStatus("done");
       }
@@ -40,21 +39,20 @@ function OnboardingContent() {
     }
   }
 
-  async function seedClosetIfEmpty() {
-    if (!user) return;
-    const existing = await listClosetItems(user.uid);
+  async function seedClosetIfEmpty(uid: string) {
+    const existing = await listClosetItems(uid);
     if (existing.length === 0) {
-      await addSeedClosetItems(user.uid, SEED_CLOSET_ITEMS);
+      await addSeedClosetItems(uid, SEED_CLOSET_ITEMS);
     }
   }
 
-  async function tryRedeem(inviteCode: string) {
+  async function tryRedeem(uid: string, inviteCode: string) {
     setStatus("redeeming");
     try {
-      await redeemInviteCode(inviteCode);
+      await redeemInviteCode(uid, inviteCode);
       setStatus("done");
     } catch (err) {
-      // Friend-linking failure shouldn't block onboarding — surface it but let them continue.
+      // 友達追加に失敗してもオンボーディング自体は続行する。
       setStatus("done");
       setErrorMessage(err instanceof Error ? err.message : "招待コードの処理に失敗しました。");
     }

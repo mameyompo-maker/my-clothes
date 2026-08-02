@@ -10,7 +10,7 @@ interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<User>;
   signOutUser: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -39,7 +39,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signInWithGoogle() {
     if (!auth) throw new Error("Firebaseが未設定です。.env.local を確認してください。");
-    await signInWithPopup(auth, googleAuthProvider);
+    const credential = await signInWithPopup(auth, googleAuthProvider);
+    // onAuthStateChangedのstate反映を待たず、呼び出し側がuidを即座に使えるようにする。
+    await ensureUserProfile(
+      credential.user.uid,
+      credential.user.displayName ?? "名無しさん",
+      credential.user.photoURL
+    );
+    return credential.user;
   }
 
   async function signOutUser() {

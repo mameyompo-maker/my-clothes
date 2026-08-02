@@ -1,11 +1,14 @@
 import {
+  arrayUnion,
   collection,
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   setDoc,
   where,
   type Unsubscribe,
@@ -73,6 +76,42 @@ export async function getFriendProfiles(friendUids: string[]): Promise<UserProfi
   if (friendUids.length === 0) return [];
   const profiles = await Promise.all(friendUids.map((uid) => getUserProfile(uid)));
   return profiles.filter((p): p is UserProfile => p !== null);
+}
+
+export interface RedeemInviteCodeResult {
+  friendUid: string;
+  friendName: string;
+}
+
+/**
+ * 招待コードから相手を探し、双方の friendUids に相互登録する。Cloud Functions は使わず、
+ * firestore.rules 側で「他人のドキュメントでも自分自身をfriendUidsに追加することだけ」を
+ * 許可しているので、Blazeプラン(従量課金)なしの無料枠だけで完結する。
+ */
+export async function redeemInviteCode(myUid: string, rawCode: string): Promise<RedeemInviteCodeResult> {
+  const database = requireDb();
+  const code = rawCode.trim().toUpperCase();
+  if (!code) throw new Error("招待コードを入力してください。");
+
+  const q = query(collection(database, "users"), where("inviteCode", "==", code), limit(1));
+  const snap = await getDocs(q);
+  if (snap.empty) throw new Error("その招待コードは見つかりませんでした。");
+
+  const friendDoc = snap.docs[0];
+  const friendUid = friendDoc.id;
+  if (friendUid === myUid) throw new Error("自分自身は追加できません。");
+
+  await runTransaction(database, async (tx) => {
+    const friendRef = doc(database, "users", friendUid);
+    const friendSnap = await tx.get(friendRef);
+    const friendData = friendSnap.data() as UserProfile;
+    if (!friendData.friendUids.includes(myUid)) {
+      tx.update(friendRef, { friendUids: [...friendData.friendUids, myUid] });
+    }
+    tx.update(doc(database, "users", myUid), { friendUids: arrayUnion(friendUid) });
+  });
+
+  return { friendUid, friendName: (friendDoc.data() as UserProfile).name ?? "友達" };
 }
 
 // ---------- Closet items ----------

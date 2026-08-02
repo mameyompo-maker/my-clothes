@@ -6,17 +6,8 @@ function functions() {
   return getFunctions(app, "asia-northeast1");
 }
 
-export interface RedeemInviteCodeResult {
-  friendUid: string;
-  friendName: string;
-}
-
-/** Calls the `redeemInviteCode` Cloud Function, which links two users as friends server-side. */
-export async function redeemInviteCode(code: string): Promise<RedeemInviteCodeResult> {
-  const call = httpsCallable<{ code: string }, RedeemInviteCodeResult>(functions(), "redeemInviteCode");
-  const result = await call({ code });
-  return result.data;
-}
+// 友達招待(redeemInviteCode)はCloud Functions不要のFirestoreルールだけで完結するように
+// なったため、lib/firestore.ts 側に移した。ここにはBlazeプラン前提の機能だけを置く。
 
 export interface ComposeOutfitImageInput {
   postId: string;

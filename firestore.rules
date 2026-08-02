@@ -7,13 +7,18 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // users: 自分のドキュメントだけ作成・更新できる。friendUids はクライアントから変更不可
-    // (招待コードの承認は functions/src/index.ts の redeemInviteCode が Admin SDK 権限で行う)。
+    // users: 自分のドキュメントは自由に更新できる。他人のドキュメントは、招待コードを
+    // 使って「自分自身をfriendUidsに追加する」ことだけ許可する(Cloud Functions不要、
+    // Blazeプラン不要で友達追加が完結する。詳しくは lib/firestore.ts の redeemInviteCode)。
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.auth.uid == uid;
-      allow update: if isSignedIn() && request.auth.uid == uid
-        && request.resource.data.friendUids == resource.data.friendUids;
+      allow update: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isSignedIn() && request.auth.uid != uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friendUids'])
+        && request.resource.data.friendUids.size() == resource.data.friendUids.size() + 1
+        && request.resource.data.friendUids.hasAll(resource.data.friendUids)
+        && request.auth.uid in request.resource.data.friendUids;
     }
 
     // closetItems: 身内利用規模なので閲覧はサインイン済みなら誰でも可、書き込みは所有者のみ。
@@ -30,7 +35,8 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
-    // outfitPosts: 投稿者本人 or 共有された友達だけ読める。更新は Cloud Functions 経由のみ。
+    // outfitPosts: 投稿者本人 or 共有された友達だけ読める。作成後の更新はクライアントから不可
+    // (AI合成を有効化した場合、Cloud Functions が Admin SDK 経由でのみ composedImageUrl を書き込む)。
     match /outfitPosts/{postId} {
       allow read: if isSignedIn()
         && (resource.data.ownerUid == request.auth.uid || request.auth.uid in resource.data.sharedWithUids);

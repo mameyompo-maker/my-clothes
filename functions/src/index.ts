@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore, FieldValue, type DocumentReference } from "firebase-admin/firestore";
+import { getFirestore, type DocumentReference } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
@@ -37,34 +37,12 @@ interface OutfitPostDoc {
   candidates: OutfitCandidateDoc[];
 }
 
-// ---------- redeemInviteCode ----------
-// 招待コードを使った友達追加は、双方のユーザードキュメントを書き換える必要があるため
-// クライアントの Firestore ルールでは許可せず、Admin SDK 権限を持つこの関数経由で行う。
-
-export const redeemInviteCode = onCall<{ code: string }>(async (request) => {
-  const uid = request.auth?.uid;
-  if (!uid) throw new HttpsError("unauthenticated", "サインインが必要です。");
-
-  const code = (request.data.code ?? "").trim().toUpperCase();
-  if (!code) throw new HttpsError("invalid-argument", "招待コードを入力してください。");
-
-  const snap = await db.collection("users").where("inviteCode", "==", code).limit(1).get();
-  if (snap.empty) throw new HttpsError("not-found", "その招待コードは見つかりませんでした。");
-
-  const friendDoc = snap.docs[0];
-  const friendUid = friendDoc.id;
-  if (friendUid === uid) throw new HttpsError("failed-precondition", "自分自身は追加できません。");
-
-  const batch = db.batch();
-  batch.update(db.collection("users").doc(uid), { friendUids: FieldValue.arrayUnion(friendUid) });
-  batch.update(db.collection("users").doc(friendUid), { friendUids: FieldValue.arrayUnion(uid) });
-  await batch.commit();
-
-  return { friendUid, friendName: (friendDoc.data().name as string | undefined) ?? "友達" };
-});
-
 // ---------- composeOutfitImage ----------
 // クローゼット写真+顔写真を Gemini の画像編集モデルに渡し、1枚の合成画像を生成する。
+// (友達招待はCloud Functions不要のfirestore.rulesだけで完結するため、この関数のみが
+// Blazeプラン+Gemini課金を必要とする。無料枠だけで試したい間はデプロイしなくてよい。
+// composeOutfitImageの呼び出しはクライアント側でPromise.allSettledに包まれており、
+// 失敗しても投稿自体は成立し、UIは合成前の服の写真をそのまま並べて表示する。)
 
 export const composeOutfitImage = onCall<{ postId: string; candidateIndex: number }>(
   { secrets: [geminiApiKey], timeoutSeconds: 120, memory: "512MiB" },
