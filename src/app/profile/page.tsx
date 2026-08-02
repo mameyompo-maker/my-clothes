@@ -13,6 +13,7 @@ export default function ProfilePage() {
   const [faces, setFaces] = useState<FacePattern[]>([]);
   const [friends, setFriends] = useState<UserProfile[]>([]);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -28,11 +29,38 @@ export default function ProfilePage() {
 
   const inviteUrl = profile ? `${typeof window !== "undefined" ? window.location.origin : ""}/onboarding?invite=${profile.inviteCode}` : "";
 
+  function copyWithFallback(text: string) {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return ok;
+  }
+
   async function copyInviteLink() {
     if (!inviteUrl) return;
-    await navigator.clipboard.writeText(inviteUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopyError(false);
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(inviteUrl);
+      } else if (!copyWithFallback(inviteUrl)) {
+        throw new Error("copy failed");
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      if (copyWithFallback(inviteUrl)) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } else {
+        setCopyError(true);
+      }
+    }
   }
 
   async function handleAddFace(e: React.ChangeEvent<HTMLInputElement>) {
@@ -76,6 +104,19 @@ export default function ProfilePage() {
           {copied ? <IconCheck className="h-4 w-4" /> : null}
           {copied ? "コピーしました" : "招待リンクをコピー"}
         </button>
+        {copyError && (
+          <div className="mt-3">
+            <p className="mb-1 text-xs text-red-500">
+              自動コピーに失敗しました。下のリンクを長押し(またはタップして全選択)して手動でコピーしてください。
+            </p>
+            <input
+              readOnly
+              value={inviteUrl}
+              onFocus={(e) => e.currentTarget.select()}
+              className="w-full rounded-xl border border-border bg-surface-muted px-3 py-2 text-xs"
+            />
+          </div>
+        )}
       </section>
 
       <section className="mb-6">
