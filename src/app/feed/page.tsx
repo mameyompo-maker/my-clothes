@@ -1,102 +1,96 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
-import { getFriendProfiles, watchFeedPosts, watchMyPosts } from "@/lib/firestore";
-import type { OutfitPost, UserProfile } from "@/types/models";
-import { IconClock } from "@/components/icons";
+import { listClosetItems, watchPublicStylePosts } from "@/lib/firestore";
+import { recommendHeadline } from "@/lib/recommend";
+import type { StylePost } from "@/types/models";
+import { StylePostCard } from "@/components/StylePostCard";
+import { EmptyState, IconButton, PrimaryButton, Skeleton, TopBar } from "@/components/ui";
+import { IconMessage, IconSearch, IconSparkles } from "@/components/icons";
 
-function timeLeftLabel(expiresAt: number): string {
-  const ms = expiresAt - Date.now();
-  if (ms <= 0) return "投票終了";
-  const hours = Math.floor(ms / (60 * 60 * 1000));
-  const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
-  return hours > 0 ? `残り${hours}時間` : `残り${minutes}分`;
-}
-
-export default function FeedPage() {
+export default function HomeFeedPage() {
   const { user, profile } = useAuth();
-  const [myPosts, setMyPosts] = useState<OutfitPost[]>([]);
-  const [friendPosts, setFriendPosts] = useState<OutfitPost[]>([]);
-  const [ownerByUid, setOwnerByUid] = useState<Record<string, UserProfile>>({});
+  const [posts, setPosts] = useState<StylePost[] | null>(null);
+  const [itemCount, setItemCount] = useState(0);
+
+  useEffect(() => {
+    const unsub = watchPublicStylePosts(setPosts);
+    return unsub;
+  }, []);
 
   useEffect(() => {
     if (!user) return;
-    const unsubMine = watchMyPosts(user.uid, (posts) => setMyPosts(posts.filter((p) => p.expiresAt > Date.now())));
-    const unsubFeed = watchFeedPosts(user.uid, setFriendPosts);
-    return () => {
-      unsubMine();
-      unsubFeed();
-    };
+    listClosetItems(user.uid).then((items) => setItemCount(items.length));
   }, [user]);
 
-  useEffect(() => {
-    if (!profile) return;
-    getFriendProfiles(profile.friendUids).then((friends) => {
-      setOwnerByUid(Object.fromEntries(friends.map((f) => [f.uid, f])));
-    });
-  }, [profile]);
-
   return (
-    <div className="mx-auto max-w-md px-4 pt-6 pb-10">
-      <h1 className="mb-5 text-xl font-bold">フィード</h1>
+    <>
+      <TopBar
+        left={<span className="gradient-text text-xl font-extrabold tracking-tight">My Clothes</span>}
+        right={
+          <>
+            <Link href="/search" aria-label="さがす">
+              <IconButton label="さがす">
+                <IconSearch className="h-5 w-5" />
+              </IconButton>
+            </Link>
+            <Link href="/chat" aria-label="メッセージ">
+              <IconButton label="メッセージ">
+                <IconMessage className="h-5 w-5" />
+              </IconButton>
+            </Link>
+          </>
+        }
+      />
 
-      {myPosts.length > 0 && (
-        <section className="mb-6">
-          <h2 className="mb-2 text-sm font-semibold text-muted-foreground">あなたの投稿</h2>
-          <div className="space-y-3">
-            {myPosts.map((post) => (
-              <PostCard key={post.id} post={post} ownerName="あなた" />
-            ))}
+      <div className="mx-auto max-w-lg pb-28">
+        <div className="px-4 pt-4">
+          <Link
+            href="/create"
+            className="tappable mb-5 flex items-center gap-3 rounded-3xl border border-accent/30 bg-accent-soft p-4"
+          >
+            <IconSparkles className="h-6 w-6 shrink-0 text-accent" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-accent">{recommendHeadline(itemCount)}</p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {itemCount > 0
+                  ? `クローゼットの${itemCount}着から2択を組みます`
+                  : "服を登録すると、ここから提案が届きます"}
+              </p>
+            </div>
+          </Link>
+        </div>
+
+        {posts === null ? (
+          <div className="space-y-6 px-4">
+            <Skeleton className="h-[420px]" />
+            <Skeleton className="h-[420px]" />
           </div>
-        </section>
-      )}
-
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-muted-foreground">友達の投稿</h2>
-        {friendPosts.length === 0 ? (
-          <p className="mt-6 text-center text-sm text-muted-foreground">まだ投稿がありません。</p>
+        ) : posts.length === 0 ? (
+          <div className="px-4">
+            <EmptyState
+              title="まだ投稿がありません"
+              description="今日のコーデを全身写真で投稿してみましょう。友達がいなくても公開できます。"
+              action={
+                <Link href="/post/new">
+                  <PrimaryButton full={false}>最初の投稿をする</PrimaryButton>
+                </Link>
+              }
+            />
+          </div>
         ) : (
-          <div className="space-y-3">
-            {friendPosts.map((post) => (
-              <PostCard key={post.id} post={post} ownerName={ownerByUid[post.ownerUid]?.name ?? "友達"} />
+          <div>
+            {posts.map((post) => (
+              <StylePostCard key={post.id} post={post} myUid={user?.uid ?? null} />
             ))}
+            <p className="py-8 text-center text-xs text-muted-foreground">
+              {profile ? "ここまでが最新の投稿です" : ""}
+            </p>
           </div>
         )}
-      </section>
-    </div>
-  );
-}
-
-function PostCard({ post, ownerName }: { post: OutfitPost; ownerName: string }) {
-  return (
-    <Link
-      href={`/feed/${post.id}`}
-      className="flex items-center gap-3 rounded-2xl border border-border bg-surface p-3"
-    >
-      <div className="flex -space-x-6">
-        {post.candidates.slice(0, 2).map((c, i) => (
-          <div key={i} className="relative h-16 w-16 overflow-hidden rounded-xl ring-2 ring-surface">
-            {c.composedImageUrl ? (
-              <Image src={c.composedImageUrl} alt={`候補${i + 1}`} fill className="object-cover" unoptimized />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-surface-muted text-[10px] text-muted-foreground">
-                準備中
-              </div>
-            )}
-          </div>
-        ))}
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{ownerName}</p>
-        <p className="truncate text-xs text-muted-foreground">{post.mood}</p>
-      </div>
-      <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
-        <IconClock className="h-3.5 w-3.5" />
-        {timeLeftLabel(post.expiresAt)}
-      </span>
-    </Link>
+    </>
   );
 }

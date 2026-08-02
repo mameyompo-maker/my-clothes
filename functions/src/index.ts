@@ -9,6 +9,11 @@ const db = getFirestore();
 
 const geminiApiKey = defineSecret("GEMINI_API_KEY");
 
+// クライアント側 (src/lib/functions.ts の CALLABLE_REGION) と必ず同じ値にすること。
+// 食い違うと callable がどこにも存在しないエンドポイントを叩き、AI合成が無言で全滅する。
+// 実際に一度それで壊れた: クライアントが asia-northeast1、関数が us-central1 だった。
+const FUNCTION_REGION = "us-central1";
+
 // 2026-08時点でのNano Banana系モデル(画像編集対応)。Kaz指定により標準グレードの
 // gemini-3.1-flash-imageをデフォルトにしている。コストを抑えたい場合は functions/.env で
 // GEMINI_IMAGE_MODEL を "gemini-3.1-flash-lite-image"(安価)に、画質を上げたい場合は
@@ -45,8 +50,10 @@ interface OutfitPostDoc {
 // composeOutfitImageの呼び出しはクライアント側でPromise.allSettledに包まれており、
 // 失敗しても投稿自体は成立し、UIは合成前の服の写真をそのまま並べて表示する。)
 
+// region は必ずクライアント側 (src/lib/functions.ts の getFunctions(app, ...)) と一致させること。
+// 一致していないと callable の呼び出しが存在しないエンドポイントに飛び、AI合成が丸ごと無言で失敗する。
 export const composeOutfitImage = onCall<{ postId: string; candidateIndex: number }>(
-  { secrets: [geminiApiKey], timeoutSeconds: 120, memory: "512MiB" },
+  { region: FUNCTION_REGION, secrets: [geminiApiKey], timeoutSeconds: 120, memory: "512MiB" },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "サインインが必要です。");

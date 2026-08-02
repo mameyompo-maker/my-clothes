@@ -1,9 +1,14 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app } from "./firebase";
 
+// functions/src/index.ts の FUNCTION_REGION と必ず同じ値にすること。
+// ここが asia-northeast1、関数側が us-central1 になっていたせいで、
+// AI合成の呼び出しが存在しないエンドポイントに飛んで全て失敗していた。
+const CALLABLE_REGION = "us-central1";
+
 function functions() {
   if (!app) throw new Error("Firebaseが未設定です。.env.local を確認してください。");
-  return getFunctions(app, "asia-northeast1");
+  return getFunctions(app, CALLABLE_REGION);
 }
 
 // 友達招待(redeemInviteCode)はCloud Functions不要のFirestoreルールだけで完結するように

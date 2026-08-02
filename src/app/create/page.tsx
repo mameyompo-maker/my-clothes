@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -13,19 +14,48 @@ import {
 } from "@/lib/firestore";
 import { composeOutfitImage } from "@/lib/functions";
 import { compressImage } from "@/lib/image";
-import { CLOSET_CATEGORIES, type ClosetCategory, type ClosetItem, type FacePattern, type OutfitCandidate, type UserProfile } from "@/types/models";
-import { IconCamera } from "@/components/icons";
+import { suggestOutfit } from "@/lib/recommend";
+import {
+  BUILD_MODES,
+  CATEGORY_ORDER,
+  CLOSET_CATEGORIES,
+  type BuildMode,
+  type ClosetCategory,
+  type ClosetItem,
+  type FacePattern,
+  type OutfitCandidate,
+  type UserProfile,
+} from "@/types/models";
+import { HangerRail } from "@/components/HangerRail";
+import {
+  Avatar,
+  Chip,
+  EmptyState,
+  Field,
+  IconButton,
+  PrimaryButton,
+  SecondaryButton,
+  TopBar,
+  inputClass,
+} from "@/components/ui";
+import { IconCamera, IconChevronLeft, IconCloset, IconSparkles } from "@/components/icons";
 
-interface CandidateDraft {
+type Slot = 0 | 1;
+type Step = "mode" | "build" | "finish";
+
+interface Draft {
   itemIdsByCategory: Partial<Record<ClosetCategory, string>>;
   facePatternId: string | null;
   liveCaptureFile: File | null;
   liveCapturePreviewUrl: string | null;
 }
 
-function emptyDraft(): CandidateDraft {
-  return { itemIdsByCategory: {}, facePatternId: null, liveCaptureFile: null, liveCapturePreviewUrl: null };
-}
+const emptyDraft = (): Draft => ({
+  itemIdsByCategory: {},
+  facePatternId: null,
+  liveCaptureFile: null,
+  liveCapturePreviewUrl: null,
+});
 
 export default function CreatePostPage() {
   const { user, profile } = useAuth();
@@ -34,10 +64,15 @@ export default function CreatePostPage() {
   const [closetItems, setClosetItems] = useState<ClosetItem[]>([]);
   const [faces, setFaces] = useState<FacePattern[]>([]);
   const [friends, setFriends] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
-  const [drafts, setDrafts] = useState<[CandidateDraft, CandidateDraft]>([emptyDraft(), emptyDraft()]);
-  const [activeCategory, setActiveCategory] = useState<ClosetCategory>("tops");
+  const [step, setStep] = useState<Step>("mode");
+  const [buildMode, setBuildMode] = useState<BuildMode>("topDown");
+  const [slot, setSlot] = useState<Slot>(0);
+  const [drafts, setDrafts] = useState<[Draft, Draft]>([emptyDraft(), emptyDraft()]);
+  // 通常は「次に埋めるべきカテゴリー」を自動で開く。ユーザーが自分でタブを触ったときだけ、
+  // その選択を優先する(effect で同期すると余計な再描画が連鎖するので派生値にしている)。
+  const [categoryOverride, setCategoryOverride] = useState<ClosetCategory | null>(null);
 
   const [mood, setMood] = useState("");
   const [note, setNote] = useState("");
@@ -48,59 +83,83 @@ export default function CreatePostPage() {
 
   useEffect(() => {
     if (!user || !profile) return;
-    listClosetItems(user.uid).then(setClosetItems);
-    listFacePatterns(user.uid).then(setFaces);
-    getFriendProfiles(profile.friendUids).then((f) => {
-      setFriends(f);
-      setSharedWith(new Set(f.map((x) => x.uid)));
-    });
+    Promise.all([
+      listClosetItems(user.uid),
+      listFacePatterns(user.uid),
+      getFriendProfiles(profile.friendUids),
+    ])
+      .then(([items, f, fr]) => {
+        setClosetItems(items);
+        setFaces(f);
+        setFriends(fr);
+        setSharedWith(new Set(fr.map((x) => x.uid)));
+      })
+      .finally(() => setLoading(false));
   }, [user, profile]);
 
-  function updateDraft(slot: 0 | 1, patch: Partial<CandidateDraft>) {
+  const draft = drafts[slot];
+
+  function updateDraft(target: Slot, patch: Partial<Draft>) {
     setDrafts((prev) => {
-      const next: [CandidateDraft, CandidateDraft] = [...prev];
-      next[slot] = { ...next[slot], ...patch };
+      const next: [Draft, Draft] = [prev[0], prev[1]];
+      next[target] = { ...next[target], ...patch };
       return next;
     });
   }
 
-  function toggleItem(slot: 0 | 1, category: ClosetCategory, itemId: string) {
-    const current = drafts[slot].itemIdsByCategory[category];
-    const nextMap = { ...drafts[slot].itemIdsByCategory };
-    if (current === itemId) {
-      delete nextMap[category];
-    } else {
-      nextMap[category] = itemId;
-    }
+  function toggleItem(item: ClosetItem) {
+    const current = draft.itemIdsByCategory[item.category];
+    const nextMap = { ...draft.itemIdsByCategory };
+    if (current === item.id) delete nextMap[item.category];
+    else nextMap[item.category] = item.id;
     updateDraft(slot, { itemIdsByCategory: nextMap });
   }
 
-  function selectFace(slot: 0 | 1, facePatternId: string) {
-    updateDraft(slot, { facePatternId, liveCaptureFile: null, liveCapturePreviewUrl: null });
+  function applySuggestion(target: Slot, hero?: ClosetItem | null) {
+    const suggestion = suggestOutfit(closetItems, {
+      favoriteGenres: profile?.favoriteGenres ?? [],
+      heroItem: hero ?? null,
+    });
+    if (!suggestion) return;
+    const map: Partial<Record<ClosetCategory, string>> = {};
+    for (const item of suggestion.items) map[item.category] = item.id;
+    updateDraft(target, { itemIdsByCategory: map });
   }
 
   function handleLiveCapture(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    updateDraft(activeSlot, {
+    updateDraft(slot, {
       liveCaptureFile: file,
       liveCapturePreviewUrl: URL.createObjectURL(file),
       facePatternId: null,
     });
   }
 
-  function toggleFriend(uid: string) {
-    setSharedWith((prev) => {
-      const next = new Set(prev);
-      if (next.has(uid)) next.delete(uid);
-      else next.add(uid);
-      return next;
-    });
-  }
+  const selectedItems = (target: Slot) =>
+    Object.values(drafts[target].itemIdsByCategory)
+      .map((id) => closetItems.find((i) => i.id === id))
+      .filter((i): i is ClosetItem => Boolean(i));
 
-  const draftReady = (d: CandidateDraft) =>
-    Object.keys(d.itemIdsByCategory).length > 0 && (d.facePatternId || d.liveCaptureFile);
-  const canSubmit = user && draftReady(drafts[0]) && draftReady(drafts[1]) && mood.trim() && !submitting;
+  const slotReady = (target: Slot) => Object.keys(drafts[target].itemIdsByCategory).length > 0;
+  const bothReady = slotReady(0) && slotReady(1);
+  const canSubmit = Boolean(user && bothReady && mood.trim() && !submitting);
+
+  // 「上から順」モードでまだ埋まっていない一番上のカテゴリー。次に選ぶべき場所を示す。
+  const nextCategory = useMemo(() => {
+    const hasOnepiece = Boolean(draft.itemIdsByCategory.onepiece);
+    return (
+      CATEGORY_ORDER.find((c) => {
+        if (draft.itemIdsByCategory[c]) return false;
+        if ((c === "tops" || c === "bottoms") && hasOnepiece) return false;
+        if (c === "onepiece" && (draft.itemIdsByCategory.tops || draft.itemIdsByCategory.bottoms)) return false;
+        return closetItems.some((i) => i.category === c);
+      }) ?? null
+    );
+  }, [draft.itemIdsByCategory, closetItems]);
+
+  const activeCategory: ClosetCategory =
+    categoryOverride ?? (buildMode === "topDown" && nextCategory ? nextCategory : "tops");
 
   async function handleSubmit() {
     if (!user || !canSubmit) return;
@@ -123,159 +182,376 @@ export default function CreatePostPage() {
         });
       }
 
-      const post = await createOutfitPost(user.uid, mood.trim(), note.trim(), candidates, Array.from(sharedWith));
+      const post = await createOutfitPost(
+        user.uid,
+        mood.trim(),
+        note.trim(),
+        candidates,
+        Array.from(sharedWith),
+        buildMode
+      );
 
-      // AI合成は失敗しても投稿自体は成立させる(合成なしでも投票はできる)。
-      await Promise.allSettled(
+      // AI合成は課金状況に左右されるので、失敗しても投稿は成立させる。
+      // 合成できない間は顔写真+服の写真をそのまま並べて表示する(OutfitCard)。
+      void Promise.allSettled(
         candidates.map((_, index) => composeOutfitImage({ postId: post.id, candidateIndex: index }))
       );
 
-      router.push("/feed");
+      router.push("/vote");
     } catch (err) {
       setError(err instanceof Error ? err.message : "投稿に失敗しました。");
-    } finally {
       setSubmitting(false);
     }
   }
 
-  const draft = drafts[activeSlot];
-  const itemsInCategory = closetItems.filter((i) => i.category === activeCategory);
-  const selectedItemsForSlot = (slot: 0 | 1) =>
-    Object.values(drafts[slot].itemIdsByCategory)
-      .map((id) => closetItems.find((i) => i.id === id))
-      .filter((i): i is ClosetItem => Boolean(i));
+  if (loading) {
+    return (
+      <>
+        <TopBar title="コーデを作る" />
+        <div className="mx-auto max-w-lg px-4 pt-10 text-center text-sm text-muted-foreground">読み込み中…</div>
+      </>
+    );
+  }
 
-  return (
-    <div className="mx-auto max-w-md px-4 pt-6 pb-10">
-      <h1 className="mb-4 text-xl font-bold">今日のコーデを投稿</h1>
+  if (closetItems.length === 0) {
+    return (
+      <>
+        <TopBar title="コーデを作る" />
+        <div className="mx-auto max-w-lg px-4 pb-28 pt-8">
+          <EmptyState
+            icon={<IconCloset className="h-10 w-10" />}
+            title="先にクローゼットを作りましょう"
+            description="持っている服を登録すると、そこから2択のコーデを組めるようになります。"
+            action={
+              <Link href="/closet/add">
+                <PrimaryButton full={false}>服を登録する</PrimaryButton>
+              </Link>
+            }
+          />
+        </div>
+      </>
+    );
+  }
 
-      <div className="mb-4 flex gap-2">
-        {[0, 1].map((slot) => (
-          <button
-            key={slot}
-            onClick={() => setActiveSlot(slot as 0 | 1)}
-            className={`flex-1 rounded-2xl border px-3 py-2 text-sm font-semibold ${
-              activeSlot === slot ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"
-            }`}
-          >
-            候補{slot === 0 ? "A" : "B"} {draftReady(drafts[slot]) ? "✓" : ""}
-          </button>
-        ))}
-      </div>
+  // ---------------- Step 1: 決め方を選ぶ ----------------
+  if (step === "mode") {
+    return (
+      <>
+        <TopBar title="コーデを作る" />
+        <div className="mx-auto max-w-lg px-4 pb-28 pt-6">
+          <h2 className="mb-1 text-xl font-bold tracking-tight">今日はどう決める?</h2>
+          <p className="mb-6 text-sm text-muted-foreground">
+            迷う時間を減らすのが目的なので、決め方から選べるようにしています。
+          </p>
 
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {selectedItemsForSlot(activeSlot).map((item) => (
-          <span key={item.id} className="rounded-full bg-surface-muted px-3 py-1 text-xs">
-            {item.label}
-          </span>
-        ))}
-        {selectedItemsForSlot(activeSlot).length === 0 && (
-          <span className="text-xs text-muted-foreground">下から服を選んでください</span>
-        )}
-      </div>
+          <div className="space-y-3">
+            {BUILD_MODES.map((m) => (
+              <button
+                key={m.value}
+                onClick={() => {
+                  setBuildMode(m.value);
+                  setStep("build");
+                }}
+                className="tappable w-full rounded-3xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-card)]"
+              >
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="text-base font-bold">{m.label}</span>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">{m.description}</p>
+              </button>
+            ))}
 
-      <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-        {CLOSET_CATEGORIES.map((c) => (
-          <button
-            key={c.value}
-            onClick={() => setActiveCategory(c.value)}
-            className={`shrink-0 rounded-full border px-4 py-1.5 text-sm ${
-              activeCategory === c.value ? "border-accent bg-accent text-accent-foreground" : "border-border text-muted-foreground"
-            }`}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="mb-6 grid grid-cols-4 gap-2">
-        {itemsInCategory.map((item) => {
-          const selected = draft.itemIdsByCategory[activeCategory] === item.id;
-          return (
             <button
-              key={item.id}
-              onClick={() => toggleItem(activeSlot, activeCategory, item.id)}
-              className={`relative aspect-square overflow-hidden rounded-xl ring-2 ${
-                selected ? "ring-accent" : "ring-transparent"
-              }`}
+              onClick={() => {
+                setBuildMode("topDown");
+                applySuggestion(0);
+                applySuggestion(1);
+                setStep("finish");
+              }}
+              className="tappable flex w-full items-center gap-3 rounded-3xl border border-accent/40 bg-accent-soft p-5 text-left"
             >
-              <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
+              <IconSparkles className="h-6 w-6 shrink-0 text-accent" />
+              <div>
+                <span className="block text-base font-bold text-accent">おまかせで2択を作る</span>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  季節と好みと着ていない期間から、2パターン自動で組みます
+                </p>
+              </div>
             </button>
-          );
-        })}
-        {itemsInCategory.length === 0 && (
-          <p className="col-span-4 text-xs text-muted-foreground">このカテゴリーにアイテムがありません。</p>
-        )}
-      </div>
+          </div>
+        </div>
+      </>
+    );
+  }
 
-      <h2 className="mb-2 text-sm font-semibold">今日の顔</h2>
-      <input ref={fileInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleLiveCapture} />
-      <div className="mb-6 grid grid-cols-4 gap-2">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className={`relative flex aspect-square flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border-2 border-dashed text-muted-foreground ${
-            draft.liveCaptureFile ? "border-accent text-accent" : "border-border"
-          }`}
-        >
-          {draft.liveCapturePreviewUrl ? (
-            <Image src={draft.liveCapturePreviewUrl} alt="今その場で撮影" fill className="rounded-xl object-cover" unoptimized />
+  // ---------------- Step 2: 服を選ぶ ----------------
+  if (step === "build") {
+    const itemsForPicker =
+      buildMode === "hero" && !slotReady(slot)
+        ? closetItems
+        : closetItems.filter((i) => i.category === activeCategory);
+
+    return (
+      <>
+        <TopBar
+          title="服を選ぶ"
+          left={
+            <IconButton label="戻る" onClick={() => setStep("mode")}>
+              <IconChevronLeft className="h-5 w-5" />
+            </IconButton>
+          }
+          right={
+            <button
+              onClick={() => setStep("finish")}
+              disabled={!bothReady}
+              className="text-sm font-bold text-accent disabled:text-muted-foreground/50"
+            >
+              次へ
+            </button>
+          }
+        />
+
+        <div className="mx-auto max-w-lg px-4 pb-28 pt-4">
+          <div className="mb-4 flex gap-2">
+            {([0, 1] as Slot[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => {
+                  setSlot(s);
+                  setCategoryOverride(null);
+                }}
+                className={`tappable flex-1 rounded-2xl border px-3 py-2.5 text-sm font-bold transition-colors ${
+                  slot === s ? "border-accent bg-accent text-accent-foreground" : "border-border bg-surface text-muted-foreground"
+                }`}
+              >
+                候補{s === 0 ? "A" : "B"} {slotReady(s) ? "✓" : ""}
+              </button>
+            ))}
+          </div>
+
+          <div className="mb-4 min-h-[54px] rounded-2xl border border-border bg-surface p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-muted-foreground">選んだアイテム</span>
+              <button
+                onClick={() => applySuggestion(slot)}
+                className="flex items-center gap-1 text-[11px] font-bold text-accent"
+              >
+                <IconSparkles className="h-3.5 w-3.5" /> おまかせ
+              </button>
+            </div>
+            {selectedItems(slot).length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {buildMode === "hero" ? "今日いちばん着たい1着を選んでください" : "下から服を選んでください"}
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedItems(slot).map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => toggleItem(item)}
+                    className="tappable rounded-full bg-surface-muted px-2.5 py-1 text-[11px]"
+                  >
+                    {item.label} ×
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {buildMode === "hero" && !slotReady(slot) ? (
+            <>
+              <p className="mb-3 text-xs font-semibold text-muted-foreground">
+                主役を1着えらぶと、残りは自動で提案します
+              </p>
+              <HangerRail
+                items={closetItems}
+                selectedIds={Object.values(draft.itemIdsByCategory) as string[]}
+                onSelect={(item) => applySuggestion(slot, item)}
+              />
+            </>
           ) : (
             <>
-              <IconCamera className="h-5 w-5" />
-              <span className="text-[10px]">その場で撮影</span>
+              <div className="no-scrollbar -mx-4 mb-4 flex gap-2 overflow-x-auto px-4">
+                {CLOSET_CATEGORIES.filter((c) => closetItems.some((i) => i.category === c.value)).map((c) => (
+                  <Chip key={c.value} selected={activeCategory === c.value} onClick={() => setCategoryOverride(c.value)}>
+                    {c.label}
+                    {draft.itemIdsByCategory[c.value] ? " ✓" : ""}
+                    {buildMode === "topDown" && nextCategory === c.value ? " ←今ここ" : ""}
+                  </Chip>
+                ))}
+              </div>
+
+              {itemsForPicker.length === 0 ? (
+                <p className="py-8 text-center text-xs text-muted-foreground">このカテゴリーの服がありません。</p>
+              ) : (
+                <HangerRail
+                  items={itemsForPicker}
+                  selectedIds={Object.values(draft.itemIdsByCategory) as string[]}
+                  onSelect={toggleItem}
+                />
+              )}
             </>
           )}
-        </button>
-        {faces.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => selectFace(activeSlot, f.id)}
-            className={`relative aspect-square overflow-hidden rounded-xl ring-2 ${
-              draft.facePatternId === f.id ? "ring-accent" : "ring-transparent"
-            }`}
-          >
-            <Image src={f.imageUrl} alt={f.label} fill className="object-cover" unoptimized />
-          </button>
-        ))}
-      </div>
+        </div>
 
-      <label className="mb-1 block text-xs font-medium text-muted-foreground">今日の気分・予定</label>
-      <input
-        value={mood}
-        onChange={(e) => setMood(e.target.value)}
-        placeholder="例: 今日はデート、ちょっと気合い入れたい"
-        className="mb-4 w-full rounded-xl border border-border bg-surface px-4 py-3 outline-none focus:border-accent"
+        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-lg gap-2">
+            {!slotReady(1) && slotReady(0) ? (
+              <PrimaryButton onClick={() => setSlot(1)}>候補Bを作る</PrimaryButton>
+            ) : (
+              <PrimaryButton onClick={() => setStep("finish")} disabled={!bothReady}>
+                次へ(顔と気分)
+              </PrimaryButton>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // ---------------- Step 3: 顔・気分・共有 ----------------
+  return (
+    <>
+      <TopBar
+        title="仕上げ"
+        left={
+          <IconButton label="戻る" onClick={() => setStep("build")}>
+            <IconChevronLeft className="h-5 w-5" />
+          </IconButton>
+        }
       />
 
-      <label className="mb-1 block text-xs font-medium text-muted-foreground">補足(任意)</label>
-      <textarea
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        rows={2}
-        className="mb-5 w-full resize-none rounded-xl border border-border bg-surface px-4 py-3 outline-none focus:border-accent"
-      />
+      <div className="mx-auto max-w-lg px-4 pb-32 pt-4">
+        <div className="mb-6 grid grid-cols-2 gap-3">
+          {([0, 1] as Slot[]).map((s) => (
+            <div key={s} className="rounded-2xl border border-border bg-surface p-2">
+              <p className="mb-1.5 text-center text-xs font-bold">候補{s === 0 ? "A" : "B"}</p>
+              <div className="grid grid-cols-2 gap-1">
+                {selectedItems(s)
+                  .slice(0, 4)
+                  .map((item) => (
+                    <div key={item.id} className="relative aspect-square overflow-hidden rounded-lg bg-surface-muted">
+                      <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ))}
+        </div>
 
-      <h2 className="mb-2 text-sm font-semibold">共有する友達</h2>
-      <div className="mb-6 space-y-2">
-        {friends.length === 0 && <p className="text-xs text-muted-foreground">友達がいません。プロフィールから招待しましょう。</p>}
-        {friends.map((f) => (
-          <label key={f.uid} className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2">
-            <input type="checkbox" checked={sharedWith.has(f.uid)} onChange={() => toggleFriend(f.uid)} className="h-4 w-4 accent-[var(--color-accent)]" />
-            {f.avatarUrl && <Image src={f.avatarUrl} alt={f.name} width={28} height={28} className="rounded-full" unoptimized />}
-            <span className="text-sm">{f.name}</span>
-          </label>
-        ))}
+        <div className="mb-6">
+          <div className="mb-2 flex items-baseline justify-between">
+            <h2 className="text-sm font-bold">今日の顔(任意)</h2>
+            <span className="text-[11px] text-muted-foreground">候補{slot === 0 ? "A" : "B"}に設定</span>
+          </div>
+          <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
+            登録すると投稿カードに一緒に表示されます。AI合成が使えるときは、この顔で着用イメージも作ります。
+          </p>
+
+          <div className="mb-2 flex gap-2">
+            {([0, 1] as Slot[]).map((s) => (
+              <Chip key={s} size="sm" selected={slot === s} onClick={() => setSlot(s)}>
+                候補{s === 0 ? "A" : "B"}
+              </Chip>
+            ))}
+          </div>
+
+          <input ref={fileInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleLiveCapture} />
+          <div className="grid grid-cols-4 gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className={`tappable relative flex aspect-square flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl border-2 border-dashed ${
+                draft.liveCaptureFile ? "border-accent text-accent" : "border-border text-muted-foreground"
+              }`}
+            >
+              {draft.liveCapturePreviewUrl ? (
+                <Image src={draft.liveCapturePreviewUrl} alt="撮影した顔" fill className="object-cover" unoptimized />
+              ) : (
+                <>
+                  <IconCamera className="h-5 w-5" />
+                  <span className="text-[10px]">撮影</span>
+                </>
+              )}
+            </button>
+            {faces.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => updateDraft(slot, { facePatternId: f.id, liveCaptureFile: null, liveCapturePreviewUrl: null })}
+                className={`tappable relative aspect-square overflow-hidden rounded-2xl ring-2 ${
+                  draft.facePatternId === f.id ? "ring-accent" : "ring-transparent"
+                }`}
+              >
+                <Image src={f.imageUrl} alt={f.label} fill className="object-cover" unoptimized />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <Field label="今日の気分・予定">
+          <input
+            value={mood}
+            onChange={(e) => setMood(e.target.value)}
+            placeholder="例: 今日はデート、ちょっと気合い入れたい"
+            className={inputClass}
+          />
+        </Field>
+
+        <Field label="ひとこと(任意)">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            className={`${inputClass} resize-none`}
+          />
+        </Field>
+
+        <h2 className="mb-2 text-sm font-bold">誰に選んでもらう?</h2>
+        {friends.length === 0 ? (
+          <div className="mb-4 rounded-2xl border border-border bg-surface p-4">
+            <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+              まだ友達がいません。友達がいなくても投稿は保存でき、あとから自分で選べます。
+            </p>
+            <Link href="/profile">
+              <SecondaryButton>友達を追加する</SecondaryButton>
+            </Link>
+          </div>
+        ) : (
+          <div className="mb-4 space-y-2">
+            {friends.map((f) => (
+              <label
+                key={f.uid}
+                className="flex items-center gap-3 rounded-2xl border border-border bg-surface px-3 py-2.5"
+              >
+                <input
+                  type="checkbox"
+                  checked={sharedWith.has(f.uid)}
+                  onChange={() =>
+                    setSharedWith((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(f.uid)) next.delete(f.uid);
+                      else next.add(f.uid);
+                      return next;
+                    })
+                  }
+                  className="h-4 w-4 accent-[var(--color-accent)]"
+                />
+                <Avatar src={f.avatarUrl} name={f.name} size={30} />
+                <span className="text-sm">{f.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       </div>
 
-      {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
-
-      <button
-        onClick={handleSubmit}
-        disabled={!canSubmit}
-        className="w-full rounded-full bg-accent px-6 py-3 font-semibold text-accent-foreground shadow-lg shadow-accent/30 disabled:opacity-50"
-      >
-        {submitting ? "投稿中…" : "投稿して友達に投票してもらう"}
-      </button>
-    </div>
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl">
+        <div className="mx-auto max-w-lg">
+          <PrimaryButton onClick={handleSubmit} disabled={!canSubmit}>
+            {submitting ? "投稿中…" : friends.length === 0 ? "2択を保存する" : "投稿して選んでもらう"}
+          </PrimaryButton>
+        </div>
+      </div>
+    </>
   );
 }

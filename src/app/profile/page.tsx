@@ -2,32 +2,66 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
-import { addFacePattern, getFriendProfiles, listFacePatterns, MAX_FACE_PATTERNS, redeemInviteCode } from "@/lib/firestore";
+import {
+  addFacePattern,
+  getFriendProfiles,
+  listFacePatterns,
+  listUserStylePosts,
+  MAX_FACE_PATTERNS,
+  redeemInviteCode,
+} from "@/lib/firestore";
 import { compressImage } from "@/lib/image";
-import type { FacePattern, UserProfile } from "@/types/models";
-import { IconCamera, IconCheck, IconUsers } from "@/components/icons";
-
-type AddFriendState =
-  | { kind: "idle" }
-  | { kind: "adding" }
-  | { kind: "added"; friendName: string }
-  | { kind: "error"; message: string };
+import {
+  BODY_TYPES,
+  PERSONAL_COLORS,
+  STYLE_GENRES,
+  type FacePattern,
+  type StylePost,
+  type UserProfile,
+} from "@/types/models";
+import {
+  Avatar,
+  BottomSheet,
+  EmptyState,
+  Field,
+  IconButton,
+  PrimaryButton,
+  SecondaryButton,
+  Skeleton,
+  TopBar,
+  inputClass,
+} from "@/components/ui";
+import {
+  IconCalendar,
+  IconCamera,
+  IconCheck,
+  IconGrid,
+  IconSettings,
+  IconUsers,
+} from "@/components/icons";
 
 export default function ProfilePage() {
   const { user, profile, signOutUser, refreshProfile } = useAuth();
   const [faces, setFaces] = useState<FacePattern[]>([]);
   const [friends, setFriends] = useState<UserProfile[]>([]);
+  const [posts, setPosts] = useState<StylePost[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [friendCode, setFriendCode] = useState("");
-  const [addFriend, setAddFriend] = useState<AddFriendState>({ kind: "idle" });
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [addState, setAddState] = useState<
+    { kind: "idle" } | { kind: "adding" } | { kind: "added"; name: string } | { kind: "error"; message: string }
+  >({ kind: "idle" });
+  const [friendSheet, setFriendSheet] = useState(false);
+  const [faceSheet, setFaceSheet] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) return;
     listFacePatterns(user.uid).then(setFaces);
+    listUserStylePosts(user.uid).then(setPosts);
   }, [user]);
 
   useEffect(() => {
@@ -35,7 +69,9 @@ export default function ProfilePage() {
     getFriendProfiles(profile.friendUids).then(setFriends);
   }, [profile]);
 
-  const inviteUrl = profile ? `${typeof window !== "undefined" ? window.location.origin : ""}/onboarding?invite=${profile.inviteCode}` : "";
+  const inviteUrl = profile
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/onboarding?invite=${profile.inviteCode}`
+    : "";
 
   function copyWithFallback(text: string) {
     const textarea = document.createElement("textarea");
@@ -74,15 +110,15 @@ export default function ProfilePage() {
   async function handleAddFriend(e: React.FormEvent) {
     e.preventDefault();
     const entered = friendCode.trim().toUpperCase();
-    if (!user || !entered || addFriend.kind === "adding") return;
-    setAddFriend({ kind: "adding" });
+    if (!user || !entered || addState.kind === "adding") return;
+    setAddState({ kind: "adding" });
     try {
       const { friendName } = await redeemInviteCode(user.uid, entered);
       await refreshProfile();
       setFriendCode("");
-      setAddFriend({ kind: "added", friendName });
+      setAddState({ kind: "added", name: friendName });
     } catch (err) {
-      setAddFriend({ kind: "error", message: err instanceof Error ? err.message : "友達の追加に失敗しました。" });
+      setAddState({ kind: "error", message: err instanceof Error ? err.message : "友達の追加に失敗しました。" });
     }
   }
 
@@ -91,9 +127,8 @@ export default function ProfilePage() {
     if (!file || !user) return;
     setUploading(true);
     try {
-      const label = `パターン${faces.length + 1}`;
       const compressed = await compressImage(file);
-      const created = await addFacePattern(user.uid, label, compressed);
+      const created = await addFacePattern(user.uid, `パターン${faces.length + 1}`, compressed);
       setFaces((prev) => [...prev, created]);
     } finally {
       setUploading(false);
@@ -102,106 +137,244 @@ export default function ProfilePage() {
   }
 
   if (!user || !profile) {
-    return <p className="mt-10 text-center text-sm text-muted-foreground">読み込み中…</p>;
+    return (
+      <>
+        <TopBar title="マイページ" />
+        <div className="mx-auto max-w-lg space-y-4 px-4 pt-6">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-40" />
+        </div>
+      </>
+    );
   }
 
+  const bodyType = BODY_TYPES.find((b) => b.value === (profile.bodyType ?? "unknown"));
+  const personalColor = PERSONAL_COLORS.find((p) => p.value === (profile.personalColor ?? "unknown"));
+  const favoriteGenres = (profile.favoriteGenres ?? [])
+    .map((g) => STYLE_GENRES.find((x) => x.value === g)?.label)
+    .filter(Boolean);
+
   return (
-    <div className="mx-auto max-w-md px-4 pt-6 pb-10">
-      <div className="mb-6 flex items-center gap-3">
-        {user.photoURL && (
-          <Image src={user.photoURL} alt={profile.name} width={56} height={56} className="rounded-full" unoptimized />
-        )}
-        <div>
-          <h1 className="text-lg font-bold">{profile.name}</h1>
-          <p className="text-xs text-muted-foreground">友達 {friends.length}人</p>
+    <>
+      <TopBar
+        left={<span className="text-lg font-bold tracking-tight">{profile.name}</span>}
+        right={
+          <>
+            <Link href="/calendar" aria-label="カレンダー">
+              <IconButton label="カレンダー">
+                <IconCalendar className="h-5 w-5" />
+              </IconButton>
+            </Link>
+            <Link href="/profile/edit" aria-label="設定">
+              <IconButton label="設定">
+                <IconSettings className="h-5 w-5" />
+              </IconButton>
+            </Link>
+          </>
+        }
+      />
+
+      <div className="mx-auto max-w-lg pb-28">
+        <div className="px-4 pt-5">
+          <div className="mb-4 flex items-center gap-5">
+            <Avatar src={profile.avatarUrl} name={profile.name} size={78} ring />
+            <div className="grid flex-1 grid-cols-3 text-center">
+              <Stat value={posts?.length ?? 0} label="投稿" />
+              <Stat value={profile.followerCount ?? 0} label="フォロワー" />
+              <Stat value={profile.followingCount ?? 0} label="フォロー中" />
+            </div>
+          </div>
+
+          <div className="mb-3">
+            {profile.handle && <p className="text-xs text-muted-foreground">@{profile.handle}</p>}
+            {profile.bio && <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{profile.bio}</p>}
+          </div>
+
+          <div className="mb-4 flex flex-wrap gap-1.5">
+            {profile.height ? <Tag>{profile.height}cm</Tag> : null}
+            {bodyType && bodyType.value !== "unknown" && <Tag>骨格{bodyType.label}</Tag>}
+            {personalColor && personalColor.value !== "unknown" && <Tag>{personalColor.label}</Tag>}
+            {profile.sizeTops && <Tag>トップス {profile.sizeTops}</Tag>}
+            {profile.sizeBottoms && <Tag>ボトムス {profile.sizeBottoms}</Tag>}
+            {profile.sizeShoes && <Tag>靴 {profile.sizeShoes}</Tag>}
+            {favoriteGenres.map((g) => (
+              <Tag key={g}>#{g}</Tag>
+            ))}
+          </div>
+
+          <div className="mb-5 flex gap-2">
+            <Link href="/profile/edit" className="flex-1">
+              <SecondaryButton>プロフィールを編集</SecondaryButton>
+            </Link>
+            <button
+              onClick={() => setFriendSheet(true)}
+              className="tappable flex items-center gap-1.5 rounded-full border border-border-strong bg-surface px-4 text-sm font-semibold"
+            >
+              <IconUsers className="h-4 w-4" />
+              {friends.length}
+            </button>
+          </div>
+
+          <div className="mb-5 rounded-3xl border border-border bg-surface p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-bold text-muted-foreground">あなたの招待コード</span>
+              <span className="text-lg font-extrabold tracking-[0.25em] text-accent">{profile.inviteCode}</span>
+            </div>
+            <button
+              onClick={copyInviteLink}
+              className="tappable flex w-full items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-bold text-accent-foreground"
+            >
+              {copied ? <IconCheck className="h-4 w-4" /> : null}
+              {copied ? "コピーしました" : "招待リンクをコピー"}
+            </button>
+            {copyError && (
+              <div className="mt-3">
+                <p className="mb-1 text-xs text-danger">
+                  自動コピーに失敗しました。下のリンクを長押しして手動でコピーしてください。
+                </p>
+                <input
+                  readOnly
+                  value={inviteUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="w-full rounded-xl border border-border bg-surface-muted px-3 py-2 text-xs"
+                />
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => setFaceSheet(true)}
+            className="tappable mb-5 flex w-full items-center gap-3 rounded-3xl border border-border bg-surface p-4 text-left"
+          >
+            <IconCamera className="h-5 w-5 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold">顔パターン({faces.length}/{MAX_FACE_PATTERNS})</p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                登録しておくと、コーデ投稿のたびに撮らずに選ぶだけで済みます
+              </p>
+            </div>
+            <div className="flex -space-x-2">
+              {faces.slice(0, 3).map((f) => (
+                <div key={f.id} className="relative h-8 w-8 overflow-hidden rounded-full ring-2 ring-surface">
+                  <Image src={f.imageUrl} alt={f.label} fill className="object-cover" unoptimized />
+                </div>
+              ))}
+            </div>
+          </button>
+        </div>
+
+        <div className="border-t border-border">
+          <div className="flex items-center justify-center gap-2 py-3 text-xs font-bold">
+            <IconGrid className="h-4 w-4" /> 投稿
+          </div>
+
+          {posts === null ? (
+            <div className="grid grid-cols-3 gap-[2px]">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="aspect-square rounded-none" />
+              ))}
+            </div>
+          ) : posts.length === 0 ? (
+            <div className="px-4 pb-6">
+              <EmptyState
+                title="まだ投稿がありません"
+                description="今日決めたコーデを全身写真で残しておくと、1ヶ月分がカレンダーにたまっていきます。"
+                action={
+                  <Link href="/post/new">
+                    <PrimaryButton full={false}>投稿してみる</PrimaryButton>
+                  </Link>
+                }
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-[2px]">
+              {posts.map((p) => (
+                <Link key={p.id} href={`/post/${p.id}`} className="relative aspect-square bg-surface-muted">
+                  <Image src={p.imageUrl} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
+                  {p.visibility === "friends" && (
+                    <span className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[9px] text-white">友達</span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-4 pt-8">
+          <button
+            onClick={signOutUser}
+            className="tappable w-full rounded-full border border-border px-6 py-3 text-sm font-semibold text-muted-foreground"
+          >
+            サインアウト
+          </button>
         </div>
       </div>
 
-      <section className="mb-6 rounded-2xl border border-border bg-surface p-4">
-        <h2 className="mb-2 text-sm font-semibold">招待コード</h2>
-        <p className="mb-3 text-3xl font-bold tracking-[0.3em] text-accent">{profile.inviteCode}</p>
-        <button
-          onClick={copyInviteLink}
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground"
-        >
-          {copied ? <IconCheck className="h-4 w-4" /> : null}
-          {copied ? "コピーしました" : "招待リンクをコピー"}
-        </button>
-        {copyError && (
-          <div className="mt-3">
-            <p className="mb-1 text-xs text-red-500">
-              自動コピーに失敗しました。下のリンクを長押し(またはタップして全選択)して手動でコピーしてください。
-            </p>
-            <input
-              readOnly
-              value={inviteUrl}
-              onFocus={(e) => e.currentTarget.select()}
-              className="w-full rounded-xl border border-border bg-surface-muted px-3 py-2 text-xs"
-            />
-          </div>
-        )}
-      </section>
-
-      <section className="mb-6">
-        <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-          <IconUsers className="h-4 w-4" /> 友達
-        </h2>
-
-        <form onSubmit={handleAddFriend} className="mb-3 rounded-2xl border border-border bg-surface p-3">
-          <label htmlFor="friend-code" className="mb-1 block text-xs font-medium text-muted-foreground">
-            友達の招待コードを入力して追加
-          </label>
-          <div className="flex gap-2">
-            <input
-              id="friend-code"
-              value={friendCode}
-              onChange={(e) => {
-                setFriendCode(e.target.value.toUpperCase());
-                if (addFriend.kind !== "idle") setAddFriend({ kind: "idle" });
-              }}
-              placeholder="例: AB12CD"
-              maxLength={6}
-              autoComplete="off"
-              className="min-w-0 flex-1 rounded-xl border border-border bg-surface-muted px-3 py-2 text-center text-base tracking-widest uppercase outline-none focus:border-accent"
-            />
-            <button
-              type="submit"
-              disabled={friendCode.trim().length === 0 || addFriend.kind === "adding"}
-              className="shrink-0 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-40"
-            >
-              {addFriend.kind === "adding" ? "追加中…" : "追加"}
-            </button>
-          </div>
-          {addFriend.kind === "added" && (
-            <p className="mt-2 flex items-center gap-1 text-xs text-accent">
+      {/* 友達シート */}
+      <BottomSheet open={friendSheet} onClose={() => setFriendSheet(false)} title="友達">
+        <form onSubmit={handleAddFriend} className="mb-5">
+          <Field label="友達の招待コードを入力して追加">
+            <div className="flex gap-2">
+              <input
+                value={friendCode}
+                onChange={(e) => {
+                  setFriendCode(e.target.value.toUpperCase());
+                  if (addState.kind !== "idle") setAddState({ kind: "idle" });
+                }}
+                placeholder="例: AB12CD"
+                maxLength={6}
+                autoComplete="off"
+                className={`${inputClass} flex-1 text-center tracking-widest`}
+              />
+              <button
+                type="submit"
+                disabled={!friendCode.trim() || addState.kind === "adding"}
+                className="tappable shrink-0 rounded-full bg-accent px-5 text-sm font-bold text-accent-foreground disabled:opacity-40"
+              >
+                {addState.kind === "adding" ? "追加中…" : "追加"}
+              </button>
+            </div>
+          </Field>
+          {addState.kind === "added" && (
+            <p className="-mt-2 flex items-center gap-1 text-xs text-accent">
               <IconCheck className="h-3.5 w-3.5" />
-              {addFriend.friendName}さんを友達に追加しました
+              {addState.name}さんを友達に追加しました
             </p>
           )}
-          {addFriend.kind === "error" && <p className="mt-2 text-xs text-red-500">{addFriend.message}</p>}
+          {addState.kind === "error" && <p className="-mt-2 text-xs text-danger">{addState.message}</p>}
         </form>
 
         {friends.length === 0 ? (
-          <p className="text-sm text-muted-foreground">まだ友達がいません。招待コードを共有しましょう。</p>
+          <p className="pb-6 text-sm text-muted-foreground">
+            まだ友達がいません。上のコードを教え合うと追加できます。
+          </p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-2 pb-6">
             {friends.map((f) => (
-              <li key={f.uid} className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2">
-                {f.avatarUrl && <Image src={f.avatarUrl} alt={f.name} width={32} height={32} className="rounded-full" unoptimized />}
-                <span className="text-sm">{f.name}</span>
+              <li key={f.uid}>
+                <Link
+                  href={`/u/${f.uid}`}
+                  className="tappable flex items-center gap-3 rounded-2xl border border-border bg-surface px-3 py-2.5"
+                >
+                  <Avatar src={f.avatarUrl} name={f.name} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{f.name}</p>
+                    {f.handle && <p className="truncate text-[11px] text-muted-foreground">@{f.handle}</p>}
+                  </div>
+                </Link>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </BottomSheet>
 
-      <section className="mb-6">
-        <h2 className="mb-1 text-sm font-semibold">顔パターン</h2>
-        <p className="mb-3 text-xs text-muted-foreground">
-          髪型やメイク違いの顔写真を最大{MAX_FACE_PATTERNS}枚登録しておくと、投稿のたびに撮影しなくても選ぶだけでコーデ合成に使えます。
+      {/* 顔パターンシート */}
+      <BottomSheet open={faceSheet} onClose={() => setFaceSheet(false)} title="顔パターン">
+        <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+          髪型やメイク違いの顔写真を最大{MAX_FACE_PATTERNS}枚まで登録できます。コーデ投稿のときに選ぶだけで使えます。
         </p>
         <input ref={fileInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleAddFace} />
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-3 pb-6">
           {faces.map((f) => (
             <div key={f.id} className="relative aspect-square overflow-hidden rounded-2xl bg-surface-muted">
               <Image src={f.imageUrl} alt={f.label} fill className="object-cover" unoptimized />
@@ -211,21 +384,29 @@ export default function ProfilePage() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="flex aspect-square flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-border text-muted-foreground disabled:opacity-50"
+              className="tappable flex aspect-square flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-border text-muted-foreground disabled:opacity-50"
             >
               <IconCamera className="h-5 w-5" />
               <span className="text-[11px]">{uploading ? "追加中…" : "追加"}</span>
             </button>
           )}
         </div>
-      </section>
+      </BottomSheet>
+    </>
+  );
+}
 
-      <button
-        onClick={signOutUser}
-        className="w-full rounded-full border border-border px-6 py-3 text-sm font-semibold text-muted-foreground"
-      >
-        サインアウト
-      </button>
+function Stat({ value, label }: { value: number; label: string }) {
+  return (
+    <div>
+      <p className="text-lg font-extrabold leading-tight">{value}</p>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
     </div>
+  );
+}
+
+function Tag({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-full bg-surface-muted px-2.5 py-1 text-[11px] text-muted-foreground">{children}</span>
   );
 }

@@ -7,53 +7,151 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // users: 自分のドキュメントは自由に更新できる。他人のドキュメントは、招待コードを
-    // 使って「自分自身をfriendUidsに追加する」ことだけ許可する(Cloud Functions不要、
-    // Blazeプラン不要で友達追加が完結する。詳しくは lib/firestore.ts の redeemInviteCode)。
+    function me() {
+      return request.auth.uid;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function isFriendOf(uid) {
+      return me() in get(/databases/$(database)/documents/users/$(uid)).data.friendUids;
+    }
+
+    // users: 自分のドキュメントは自由。他人のドキュメントに触れるのは次の2つだけ。
+    //  1. 招待コードで「自分自身をfriendUidsに追加する」(Cloud Functions不要で友達追加を完結させる)
+    //  2. フォロー時に相手の followerCount を1増減する
     match /users/{uid} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.auth.uid == uid;
-      allow update: if isSignedIn() && request.auth.uid == uid;
-      allow update: if isSignedIn() && request.auth.uid != uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friendUids'])
+      allow create: if isSignedIn() && me() == uid;
+      allow update: if isSignedIn() && me() == uid;
+
+      allow update: if isSignedIn() && me() != uid
+        && changedKeys().hasOnly(['friendUids'])
         && request.resource.data.friendUids.size() == resource.data.friendUids.size() + 1
         && request.resource.data.friendUids.hasAll(resource.data.friendUids)
-        && request.auth.uid in request.resource.data.friendUids;
+        && me() in request.resource.data.friendUids;
+
+      allow update: if isSignedIn() && me() != uid
+        && changedKeys().hasOnly(['followerCount'])
+        && request.resource.data.followerCount >= 0
+        && (request.resource.data.followerCount == resource.data.followerCount + 1
+            || request.resource.data.followerCount == resource.data.followerCount - 1);
     }
 
-    // closetItems: 身内利用規模なので閲覧はサインイン済みなら誰でも可、書き込みは所有者のみ。
+    // follows: 自分が follower である行だけ作れる/消せる。
+    match /follows/{followId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.followerUid == me()
+        && request.resource.data.followingUid != me()
+        && followId == me() + '__' + request.resource.data.followingUid;
+      allow delete: if isSignedIn() && resource.data.followerUid == me();
+      allow update: if false;
+    }
+
+    // closetItems: 閲覧はサインイン済みなら可(投稿のアイテムタグから辿れる必要がある)。
+    // 書き込みは所有者のみ。
     match /closetItems/{itemId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == me();
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == me();
     }
 
-    // facePatterns: 本人しか読み書きできない(合成処理は Cloud Functions が Admin SDK で読む)。
+    // facePatterns: 本人しか読み書きできない(合成は Cloud Functions が Admin SDK で読む)。
     match /facePatterns/{patternId} {
-      allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
-      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.ownerUid == me();
+      allow create: if isSignedIn() && request.resource.data.ownerUid == me();
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == me();
     }
 
-    // outfitPosts: 投稿者本人 or 共有された友達だけ読める。作成後の更新はクライアントから不可
-    // (AI合成を有効化した場合、Cloud Functions が Admin SDK 経由でのみ composedImageUrl を書き込む)。
+    // outfitPosts(2択): 投稿者本人 or 共有された友達だけ読める。
     match /outfitPosts/{postId} {
       allow read: if isSignedIn()
-        && (resource.data.ownerUid == request.auth.uid || request.auth.uid in resource.data.sharedWithUids);
-      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if false;
+        && (resource.data.ownerUid == me() || me() in resource.data.sharedWithUids);
+      allow create: if isSignedIn() && request.resource.data.ownerUid == me();
+      // 「どっちを着たか」の記録だけは本人が後から書ける。合成結果は Admin SDK が書く。
+      allow update: if isSignedIn() && resource.data.ownerUid == me()
+        && changedKeys().hasOnly(['decidedCandidateIndex']);
+      allow delete: if isSignedIn() && resource.data.ownerUid == me();
 
-      // votes: 投稿を見られる友達だけが、本人名義で1票だけ投じられる(投稿者本人は不可)。
       match /votes/{voterUid} {
         allow read: if isSignedIn()
-          && (get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid == request.auth.uid
-              || request.auth.uid in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids);
-        allow create, update: if isSignedIn() && request.auth.uid == voterUid
+          && (get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid == me()
+              || me() in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids);
+        allow create, update: if isSignedIn() && me() == voterUid
           && request.resource.data.voterUid == voterUid
           && request.resource.data.postId == postId
-          && get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid != request.auth.uid
-          && request.auth.uid in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids;
+          && get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid != me()
+          && me() in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids;
         allow delete: if false;
+      }
+    }
+
+    // stylePosts(全身写真): public は誰でも、friends は友達と本人だけ。
+    // 友達がいなくても public に投稿できることがこの画面の狙い。
+    match /stylePosts/{postId} {
+      function canReadPost() {
+        return resource.data.visibility == 'public'
+          || resource.data.ownerUid == me()
+          || isFriendOf(resource.data.ownerUid);
+      }
+
+      allow read: if isSignedIn() && canReadPost();
+      allow create: if isSignedIn() && request.resource.data.ownerUid == me();
+      allow delete: if isSignedIn() && resource.data.ownerUid == me();
+
+      // 本人による編集。
+      allow update: if isSignedIn() && resource.data.ownerUid == me()
+        && changedKeys().hasOnly(['caption', 'itemTags', 'genres', 'season', 'visibility']);
+
+      // いいね/コメントのカウンタは他人も動かす。1ずつしか変えられないよう縛る。
+      allow update: if isSignedIn() && canReadPost()
+        && changedKeys().hasOnly(['likeCount'])
+        && request.resource.data.likeCount >= 0
+        && (request.resource.data.likeCount == resource.data.likeCount + 1
+            || request.resource.data.likeCount == resource.data.likeCount - 1);
+
+      allow update: if isSignedIn() && canReadPost()
+        && changedKeys().hasOnly(['commentCount'])
+        && request.resource.data.commentCount >= 0
+        && (request.resource.data.commentCount == resource.data.commentCount + 1
+            || request.resource.data.commentCount == resource.data.commentCount - 1);
+
+      // likes: ドキュメントIDをUIDに固定しているので、1人1いいねが構造的に保証される。
+      match /likes/{likeUid} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && me() == likeUid && request.resource.data.uid == me();
+        allow delete: if isSignedIn() && me() == likeUid;
+        allow update: if false;
+      }
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.uid == me();
+        allow delete: if isSignedIn() && resource.data.uid == me();
+        allow update: if false;
+      }
+    }
+
+    // chatThreads(DM): 参加者だけ。E2E暗号化はしない方針(Instagram の DM 相当)。
+    match /chatThreads/{tid} {
+      allow read: if isSignedIn() && me() in resource.data.memberUids;
+      allow create: if isSignedIn()
+        && me() in request.resource.data.memberUids
+        && request.resource.data.memberUids.size() == 2;
+      allow update: if isSignedIn() && me() in resource.data.memberUids
+        && changedKeys().hasOnly(['lastMessage', 'lastMessageAt', 'lastSenderUid']);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn()
+          && me() in get(/databases/$(database)/documents/chatThreads/$(tid)).data.memberUids;
+        allow create: if isSignedIn()
+          && request.resource.data.senderUid == me()
+          && me() in get(/databases/$(database)/documents/chatThreads/$(tid)).data.memberUids;
+        allow update, delete: if false;
       }
     }
   }
