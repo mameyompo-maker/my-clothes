@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { addSeedClosetItems, listClosetItems, redeemInviteCode } from "@/lib/firestore";
 import { SEED_CLOSET_ITEMS } from "@/data/seedClosetItems";
@@ -14,30 +14,43 @@ export default function OnboardingPage() {
   );
 }
 
-function OnboardingContent() {
-  const { user, signInWithGoogle } = useAuth();
-  const searchParams = useSearchParams();
-  const prefillCode = searchParams.get("invite") ?? "";
-  const [code, setCode] = useState(prefillCode);
-  const [status, setStatus] = useState<"idle" | "signing-in" | "redeeming" | "done" | "error">("idle");
-  const [errorMessage, setErrorMessage] = useState("");
+type Phase =
+  | { kind: "input" }
+  | { kind: "working"; label: string }
+  | { kind: "added"; friendName: string }
+  | { kind: "failed"; message: string };
 
-  async function handleSignIn() {
-    setStatus("signing-in");
-    setErrorMessage("");
-    try {
-      const signedInUser = await signInWithGoogle();
-      await seedClosetIfEmpty(signedInUser.uid);
-      if (code.trim()) {
-        await tryRedeem(signedInUser.uid, code.trim());
-      } else {
-        setStatus("done");
-      }
-    } catch (err) {
-      setStatus("error");
-      setErrorMessage(err instanceof Error ? err.message : "サインインに失敗しました。");
+function OnboardingContent() {
+  const { user, signInWithGoogle, refreshProfile } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteFromLink = (searchParams.get("invite") ?? "").trim().toUpperCase();
+  const [code, setCode] = useState(inviteFromLink);
+  const [phase, setPhase] = useState<Phase>({ kind: "input" });
+  // サインイン済みの人が招待リンクを開いたときの処理を、一度だけ走らせるための番人。
+  const linkHandled = useRef(false);
+
+  useEffect(() => {
+    if (!user || linkHandled.current) return;
+    linkHandled.current = true;
+    if (!inviteFromLink) {
+      router.replace("/feed");
+      return;
     }
-  }
+    void (async () => {
+      setPhase({ kind: "working", label: "友達を追加しています…" });
+      try {
+        const { friendName } = await redeemInviteCode(user.uid, inviteFromLink);
+        await refreshProfile();
+        setPhase({ kind: "added", friendName });
+      } catch (err) {
+        setPhase({
+          kind: "failed",
+          message: err instanceof Error ? err.message : "招待コードの処理に失敗しました。",
+        });
+      }
+    })();
+  }, [user, inviteFromLink, router, refreshProfile]);
 
   async function seedClosetIfEmpty(uid: string) {
     const existing = await listClosetItems(uid);
@@ -46,17 +59,40 @@ function OnboardingContent() {
     }
   }
 
-  async function tryRedeem(uid: string, inviteCode: string) {
-    setStatus("redeeming");
+  async function handleSignIn() {
+    // ここから先はこの関数が流れを主導するので、上のuseEffectには手を出させない。
+    linkHandled.current = true;
+    setPhase({ kind: "working", label: "サインインしています…" });
+    let signedInUid: string;
     try {
-      await redeemInviteCode(uid, inviteCode);
-      setStatus("done");
+      const signedInUser = await signInWithGoogle();
+      signedInUid = signedInUser.uid;
+      await seedClosetIfEmpty(signedInUid);
     } catch (err) {
-      // 友達追加に失敗してもオンボーディング自体は続行する。
-      setStatus("done");
-      setErrorMessage(err instanceof Error ? err.message : "招待コードの処理に失敗しました。");
+      linkHandled.current = false;
+      setPhase({ kind: "failed", message: err instanceof Error ? err.message : "サインインに失敗しました。" });
+      return;
+    }
+
+    const entered = code.trim().toUpperCase();
+    if (!entered) {
+      router.replace("/feed");
+      return;
+    }
+    setPhase({ kind: "working", label: "友達を追加しています…" });
+    try {
+      const { friendName } = await redeemInviteCode(signedInUid, entered);
+      await refreshProfile();
+      setPhase({ kind: "added", friendName });
+    } catch (err) {
+      setPhase({
+        kind: "failed",
+        message: err instanceof Error ? err.message : "招待コードの処理に失敗しました。",
+      });
     }
   }
+
+  const showSpinner = phase.kind === "working" || (phase.kind === "input" && user !== null);
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-8 text-center">
@@ -65,33 +101,73 @@ function OnboardingContent() {
         <p className="text-sm text-muted-foreground">朝のコーデ選びを、友達と一緒に。</p>
       </div>
 
-      {!user ? (
+      {showSpinner && (
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+          <p className="text-sm text-muted-foreground">
+            {phase.kind === "working" ? phase.label : "読み込み中…"}
+          </p>
+        </div>
+      )}
+
+      {phase.kind === "added" && (
+        <div className="w-full max-w-xs space-y-4">
+          <div className="space-y-1">
+            <p className="text-base font-semibold">{phase.friendName}さんと友達になりました!</p>
+            <p className="text-xs text-muted-foreground">
+              お互いのコーデ投稿に投票できるようになりました。
+            </p>
+          </div>
+          <button
+            onClick={() => router.replace("/feed")}
+            className="w-full rounded-full bg-accent px-6 py-3 font-semibold text-accent-foreground shadow-lg shadow-accent/30"
+          >
+            はじめる
+          </button>
+        </div>
+      )}
+
+      {!user && (phase.kind === "input" || phase.kind === "failed") && (
         <div className="w-full max-w-xs space-y-4">
           <div className="text-left">
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            <label htmlFor="invite-code" className="mb-1 block text-xs font-medium text-muted-foreground">
               招待コード(あれば)
             </label>
             <input
+              id="invite-code"
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
               placeholder="例: AB12CD"
               className="w-full rounded-xl border border-border bg-surface px-4 py-3 text-center text-lg tracking-widest uppercase outline-none focus:border-accent"
               maxLength={6}
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              後からプロフィール画面でも追加できます。
+            </p>
           </div>
           <button
             onClick={handleSignIn}
-            disabled={status === "signing-in"}
-            className="w-full rounded-full bg-accent px-6 py-3 font-semibold text-accent-foreground shadow-lg shadow-accent/30 disabled:opacity-60"
+            className="w-full rounded-full bg-accent px-6 py-3 font-semibold text-accent-foreground shadow-lg shadow-accent/30"
           >
-            {status === "signing-in" ? "サインイン中…" : "Googleでサインイン"}
+            Googleでサインイン
           </button>
-          {status === "error" && <p className="text-sm text-red-500">{errorMessage}</p>}
+          {phase.kind === "failed" && <p className="text-sm text-red-500">{phase.message}</p>}
         </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {status === "redeeming" ? "友達を追加しています…" : "準備中です…"}
-        </p>
+      )}
+
+      {user && phase.kind === "failed" && (
+        <div className="w-full max-w-xs space-y-4">
+          <p className="text-sm text-red-500">{phase.message}</p>
+          <p className="text-xs text-muted-foreground">
+            プロフィール画面の「友達の招待コードを入力して追加」から、もう一度試せます。
+          </p>
+          <button
+            onClick={() => router.replace("/feed")}
+            className="w-full rounded-full bg-accent px-6 py-3 font-semibold text-accent-foreground shadow-lg shadow-accent/30"
+          >
+            アプリを開く
+          </button>
+        </div>
       )}
     </div>
   );

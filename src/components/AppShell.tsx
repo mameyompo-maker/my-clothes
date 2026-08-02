@@ -14,15 +14,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
+  // サインイン済みの人を /onboarding から追い出す処理は、ここではなく onboarding ページ側が持つ。
+  // 招待リンク(/onboarding?invite=XXXX)は開いた時点で既にサインイン済みのことが多く、
+  // ここで問答無用に /feed へ飛ばすと招待コードが処理される前に画面が消えてしまうため。
   useEffect(() => {
     if (loading) return;
     if (!user && !isPublicPath) {
       router.replace("/onboarding");
     }
-    if (user && pathname === "/onboarding") {
-      router.replace("/feed");
-    }
-  }, [loading, user, isPublicPath, pathname, router]);
+  }, [loading, user, isPublicPath, router]);
 
   if (!isFirebaseConfigured) {
     return (

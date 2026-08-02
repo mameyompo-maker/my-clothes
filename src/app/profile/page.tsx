@@ -3,17 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useAuth } from "@/components/AuthProvider";
-import { addFacePattern, getFriendProfiles, listFacePatterns, MAX_FACE_PATTERNS } from "@/lib/firestore";
+import { addFacePattern, getFriendProfiles, listFacePatterns, MAX_FACE_PATTERNS, redeemInviteCode } from "@/lib/firestore";
 import { compressImage } from "@/lib/image";
 import type { FacePattern, UserProfile } from "@/types/models";
 import { IconCamera, IconCheck, IconUsers } from "@/components/icons";
 
+type AddFriendState =
+  | { kind: "idle" }
+  | { kind: "adding" }
+  | { kind: "added"; friendName: string }
+  | { kind: "error"; message: string };
+
 export default function ProfilePage() {
-  const { user, profile, signOutUser } = useAuth();
+  const { user, profile, signOutUser, refreshProfile } = useAuth();
   const [faces, setFaces] = useState<FacePattern[]>([]);
   const [friends, setFriends] = useState<UserProfile[]>([]);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+  const [friendCode, setFriendCode] = useState("");
+  const [addFriend, setAddFriend] = useState<AddFriendState>({ kind: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -60,6 +68,21 @@ export default function ProfilePage() {
       } else {
         setCopyError(true);
       }
+    }
+  }
+
+  async function handleAddFriend(e: React.FormEvent) {
+    e.preventDefault();
+    const entered = friendCode.trim().toUpperCase();
+    if (!user || !entered || addFriend.kind === "adding") return;
+    setAddFriend({ kind: "adding" });
+    try {
+      const { friendName } = await redeemInviteCode(user.uid, entered);
+      await refreshProfile();
+      setFriendCode("");
+      setAddFriend({ kind: "added", friendName });
+    } catch (err) {
+      setAddFriend({ kind: "error", message: err instanceof Error ? err.message : "友達の追加に失敗しました。" });
     }
   }
 
@@ -123,6 +146,41 @@ export default function ProfilePage() {
         <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
           <IconUsers className="h-4 w-4" /> 友達
         </h2>
+
+        <form onSubmit={handleAddFriend} className="mb-3 rounded-2xl border border-border bg-surface p-3">
+          <label htmlFor="friend-code" className="mb-1 block text-xs font-medium text-muted-foreground">
+            友達の招待コードを入力して追加
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="friend-code"
+              value={friendCode}
+              onChange={(e) => {
+                setFriendCode(e.target.value.toUpperCase());
+                if (addFriend.kind !== "idle") setAddFriend({ kind: "idle" });
+              }}
+              placeholder="例: AB12CD"
+              maxLength={6}
+              autoComplete="off"
+              className="min-w-0 flex-1 rounded-xl border border-border bg-surface-muted px-3 py-2 text-center text-base tracking-widest uppercase outline-none focus:border-accent"
+            />
+            <button
+              type="submit"
+              disabled={friendCode.trim().length === 0 || addFriend.kind === "adding"}
+              className="shrink-0 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-40"
+            >
+              {addFriend.kind === "adding" ? "追加中…" : "追加"}
+            </button>
+          </div>
+          {addFriend.kind === "added" && (
+            <p className="mt-2 flex items-center gap-1 text-xs text-accent">
+              <IconCheck className="h-3.5 w-3.5" />
+              {addFriend.friendName}さんを友達に追加しました
+            </p>
+          )}
+          {addFriend.kind === "error" && <p className="mt-2 text-xs text-red-500">{addFriend.message}</p>}
+        </form>
+
         {friends.length === 0 ? (
           <p className="text-sm text-muted-foreground">まだ友達がいません。招待コードを共有しましょう。</p>
         ) : (
