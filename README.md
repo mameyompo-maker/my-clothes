@@ -1,36 +1,102 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# My Clothes
 
-## Getting Started
+朝のコーデ選びを、友達と一緒に。クローゼットの写真をあらかじめ登録しておき、その日の気分や予定を添えて2つのコーデ候補を投稿すると、選んだ友達が2択タップで投票してくれるアプリです。投稿は24時間で自動的に消えます。
 
-First, run the development server:
+## 主な機能
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **クローゼット**: トップス/ボトムス/アウター/シューズ/アクセサリーの5カテゴリーで服を撮影・登録。初回は普遍的な服10種類がサンプルとして自動で入る。
+- **顔パターン**: 髪型・メイク違いの顔写真を最大5枚登録し、毎日の投稿時にその場で撮る代わりに選ぶだけでも使える。
+- **コーデ投稿**: クローゼットから服を選んで候補A/Bを作成し、今日の気分・予定を添えて投稿。共有する友達を選べる。
+- **AI合成**: 服の写真+顔写真を Gemini の画像編集モデルに渡し、実際に着用しているような1枚の合成画像を生成(Cloud Functions経由)。
+- **投票**: 友達は候補A/Bを横並び2択タップで投票。投票すると票数が見える。
+- **招待制の友達関係**: 招待コード/リンクで友達を追加。投稿は招待コードで繋がった友達の中から選んで共有。
+
+## 技術スタック
+
+- Next.js 16 (App Router, TypeScript, Tailwind CSS v4) — Web PWA
+- Firebase (Authentication / Firestore / Storage / Cloud Functions)
+- Gemini API(画像編集モデル)によるコーデ合成 — Cloud Functions 内で呼び出し
+
+ホスティングは特定のサービスに縛られない構成にしてあります(Vercelへのデプロイを想定)。Firebaseは認証・DB・ストレージ・関数のみに使っています。
+
+## ディレクトリ構成(抜粋)
+
+```
+src/
+  app/            App Router のページ(onboarding / closet / create / feed / profile)
+  components/     AuthProvider, BottomNav, AppShell などの共通UI
+  lib/            Firebase クライアント初期化・Firestoreヘルパー・Cloud Functions呼び出し
+  types/          データモデルの型定義
+  data/           初期シードデータ(服10種)
+functions/        Firebase Cloud Functions(招待コード処理・Gemini合成)
+firestore.rules   Firestore セキュリティルール
+storage.rules     Storage セキュリティルール
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## セットアップ手順
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 1. Firebaseプロジェクトを作成
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. [Firebaseコンソール](https://console.firebase.google.com/)で新規プロジェクトを作成。
+2. **Authentication** → Sign-in method で **Google** を有効化。
+3. **Firestore Database** を作成(本番モードでOK。ルールは後述の手順で反映する)。
+4. **Storage** を作成。
+5. プロジェクトの設定 → マイアプリ → ウェブアプリを追加し、表示された設定値を控える。
 
-## Learn More
+### 2. Webアプリ側の環境変数
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+cp .env.local.example .env.local
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`.env.local` に手順1で控えた `NEXT_PUBLIC_FIREBASE_*` の値を入力する。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 3. 依存関係のインストールと起動
 
-## Deploy on Vercel
+```bash
+npm install
+npm run dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`http://localhost:3000` を開く。`.env.local` が未設定の間は「Firebaseの設定が必要です」という案内だけが表示される。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 4. Firebase CLIでルール・関数をデプロイ
+
+```bash
+npm install -g firebase-tools   # 未インストールの場合
+firebase login
+cp .firebaserc.example .firebaserc   # "your-firebase-project-id" を実際のプロジェクトIDに書き換え
+firebase deploy --only firestore:rules,storage:rules
+```
+
+### 5. Gemini APIキーの設定とCloud Functionsのデプロイ
+
+1. [Google AI Studio](https://aistudio.google.com/) などでGemini APIキーを取得。
+2. デプロイ前に、画像編集(nano banana系)に対応した最新のGeminiモデル名を
+   https://ai.google.dev/gemini-api/docs/models で確認する(`functions/src/index.ts` の
+   `GEMINI_IMAGE_MODEL` のデフォルト値はこの原稿作成時点の推測であり、変わっている可能性がある)。
+3. シークレットを登録してデプロイ:
+
+```bash
+firebase functions:secrets:set GEMINI_API_KEY
+cd functions
+npm install
+cd ..
+firebase deploy --only functions
+```
+
+## 現状の実装状況 / 今後のTODO
+
+- 画面・データモデル・Firestore/Storageルール・Cloud Functions(招待コード処理、Gemini合成)は一通り実装済みですが、**実際のFirebaseプロジェクト・Gemini APIキーがない状態ではまだ動作確認できていません**。上記セットアップ後に一通り動作確認してください。
+- 通知機能は今回のスコープ外(投票状況はアプリを開いたときに確認する想定)。
+- 認証はGoogleサインインのみ実装。他の方式が必要な場合は `src/components/AuthProvider.tsx` を拡張してください。
+- PWAのオフライン対応(Service Worker)は未実装。マニフェスト(`src/app/manifest.ts`)とアイコンのみ用意済み。
+- クローゼットアイテム・顔パターンの削除・編集UIは未実装(登録のみ)。
+
+## アイコン再生成
+
+`public/icons/` のPWAアイコンは `scripts/generate-icons.mjs` で生成しています。ロゴを変更したい場合はこのスクリプトを編集して再実行してください。
+
+```bash
+node scripts/generate-icons.mjs
+```

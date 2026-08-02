@@ -1,0 +1,54 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // users: 自分のドキュメントだけ作成・更新できる。friendUids はクライアントから変更不可
+    // (招待コードの承認は functions/src/index.ts の redeemInviteCode が Admin SDK 権限で行う)。
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isSignedIn() && request.auth.uid == uid
+        && request.resource.data.friendUids == resource.data.friendUids;
+    }
+
+    // closetItems: 身内利用規模なので閲覧はサインイン済みなら誰でも可、書き込みは所有者のみ。
+    match /closetItems/{itemId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // facePatterns: 本人しか読み書きできない(合成処理は Cloud Functions が Admin SDK で読む)。
+    match /facePatterns/{patternId} {
+      allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // outfitPosts: 投稿者本人 or 共有された友達だけ読める。更新は Cloud Functions 経由のみ。
+    match /outfitPosts/{postId} {
+      allow read: if isSignedIn()
+        && (resource.data.ownerUid == request.auth.uid || request.auth.uid in resource.data.sharedWithUids);
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if false;
+
+      // votes: 投稿を見られる友達だけが、本人名義で1票だけ投じられる(投稿者本人は不可)。
+      match /votes/{voterUid} {
+        allow read: if isSignedIn()
+          && (get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid == request.auth.uid
+              || request.auth.uid in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids);
+        allow create, update: if isSignedIn() && request.auth.uid == voterUid
+          && request.resource.data.voterUid == voterUid
+          && request.resource.data.postId == postId
+          && get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid != request.auth.uid
+          && request.auth.uid in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids;
+        allow delete: if false;
+      }
+    }
+  }
+}
