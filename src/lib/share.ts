@@ -11,15 +11,20 @@ export function postUrl(postId: string): string {
   return `${origin}/post/${postId}`;
 }
 
+/** 2択の公開URL。 */
+export function outfitUrl(postId: string): string {
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  return `${origin}/vote/${postId}`;
+}
+
 export type ShareResult = "shared" | "copied" | "failed";
 
 /**
- * 投稿を共有する。
+ * リンクを共有する。
  * 1. OS の共有シート(LINEやXに直接送れる)
  * 2. 使えなければクリップボードにコピー
  */
-export async function sharePost(postId: string, text: string): Promise<ShareResult> {
-  const url = postUrl(postId);
+async function shareLink(url: string, text: string): Promise<ShareResult> {
   if (typeof navigator !== "undefined" && navigator.share) {
     try {
       await navigator.share({ title: "My Clothes", text, url });
@@ -35,6 +40,19 @@ export async function sharePost(postId: string, text: string): Promise<ShareResu
   } catch {
     return "failed";
   }
+}
+
+export async function sharePost(postId: string, text: string): Promise<ShareResult> {
+  return shareLink(postUrl(postId), text);
+}
+
+/**
+ * 2択を共有する。「LINEに貼って友達に選んでもらう」がこのアプリの中核の流れなので、
+ * 2択詳細から1タップで送れるようにする。リンク先は今のところログインが必要
+ * (公開ビュー未実装)なので、実質は友達同士のやりとり向け。
+ */
+export async function shareOutfit(postId: string, text: string): Promise<ShareResult> {
+  return shareLink(outfitUrl(postId), text);
 }
 
 /**

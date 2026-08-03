@@ -21,6 +21,8 @@ function timeLeftLabel(expiresAt: number): string {
   if (ms <= 0) return "投票終了";
   const hours = Math.floor(ms / (60 * 60 * 1000));
   const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
+  // 公式サンプルなど期限の長い2択は「残り71時間」より「残り2日」の方が読める。
+  if (hours >= 24) return `残り${Math.floor(hours / 24)}日`;
   return hours > 0 ? `残り${hours}時間` : `残り${minutes}分`;
 }
 

@@ -30,6 +30,7 @@ import {
 } from "@/types/models";
 import { OutfitCard, OutfitItemChips } from "@/components/OutfitCard";
 import { PricePanel } from "@/components/PricePanel";
+import { shareOutfit } from "@/lib/share";
 import {
   Avatar,
   IconButton,
@@ -56,6 +57,7 @@ export default function VoteDetailPage() {
   const [commentText, setCommentText] = useState("");
   const [sendingComment, setSendingComment] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [shareNote, setShareNote] = useState("");
   // 締め切り判定に使う現在時刻。描画中に Date.now() を読むと結果が安定しないので、
   // タイマー経由で state に落としてから使う。初期値0の間は「まだ締め切っていない」扱い。
   const [now, setNow] = useState(0);
@@ -175,7 +177,23 @@ export default function VoteDetailPage() {
             <IconChevronLeft className="h-5 w-5" />
           </IconButton>
         }
+        right={
+          <button
+            onClick={async () => {
+              // 「LINEに貼って選んでもらう」導線。共有シート→コピーの順に落ちる。
+              const r = await shareOutfit(post.id, post.mood || "今日のコーデ、どっちがいい?");
+              setShareNote(r === "copied" ? "リンクをコピーしました" : r === "failed" ? "共有できませんでした" : "");
+              setTimeout(() => setShareNote(""), 2000);
+            }}
+            className="text-sm font-bold text-accent"
+          >
+            共有
+          </button>
+        }
       />
+      {shareNote && (
+        <p className="mx-auto max-w-lg px-4 pt-2 text-[11px] text-muted-foreground">{shareNote}</p>
+      )}
 
       <div className="mx-auto max-w-lg px-4 pb-40 pt-4">
         <div className="mb-4 flex items-center gap-2.5">
