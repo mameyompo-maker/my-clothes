@@ -1,4 +1,4 @@
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret, defineString } from "firebase-functions/params";
 import Stripe from "stripe";
@@ -12,7 +12,20 @@ import Stripe from "stripe";
  * 署名検証したうえでのみ信用する(クライアントの「払いました」は信用しない)。
  */
 
-const db = getFirestore();
+/**
+ * Firestore は遅延取得すること。トップレベルで getFirestore() を呼んではいけない。
+ *
+ * index.ts は `export { ... } from "./billing.js"` でこのファイルを再輸出しているが、
+ * ESM では再輸出は import と同じく巻き上げられ、**index.ts 本体の initializeApp() より
+ * 先に billing.ts のトップレベルが評価される**。そこで getFirestore() を呼ぶと
+ * 「The default Firebase app does not exist」でデプロイ時の解析ごと落ちる(実際に落ちた)。
+ * 関数の実行時まで取得を遅らせれば、その時点では初期化済みなので安全。
+ */
+let firestore: Firestore | null = null;
+function db(): Firestore {
+  if (!firestore) firestore = getFirestore();
+  return firestore;
+}
 
 const stripeSecretKey = defineSecret("STRIPE_SECRET_KEY");
 const stripeWebhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
@@ -35,7 +48,7 @@ function stripeClient(): Stripe {
  * 毎回新しい顧客を作ると、同じ人の請求履歴がStripe上でばらばらになるため。
  */
 async function ensureCustomer(stripe: Stripe, uid: string, email?: string): Promise<string> {
-  const ref = db.collection("users").doc(uid);
+  const ref = db().collection("users").doc(uid);
   const snap = await ref.get();
   const existing = snap.get("stripeCustomerId") as string | undefined;
   if (existing) return existing;
@@ -93,7 +106,7 @@ export const createBillingPortalSession = onCall(
     if (!uid) throw new HttpsError("unauthenticated", "サインインが必要です。");
 
     const stripe = stripeClient();
-    const snap = await db.collection("users").doc(uid).get();
+    const snap = await db().collection("users").doc(uid).get();
     const customerId = snap.get("stripeCustomerId") as string | undefined;
     if (!customerId) throw new HttpsError("failed-precondition", "お申し込み履歴が見つかりません。");
 
@@ -110,7 +123,7 @@ export const createBillingPortalSession = onCall(
 // ---------------------------------------------------------------------------
 
 async function setPlanForCustomer(customerId: string, plan: "free" | "premium"): Promise<void> {
-  const found = await db.collection("users").where("stripeCustomerId", "==", customerId).limit(1).get();
+  const found = await db().collection("users").where("stripeCustomerId", "==", customerId).limit(1).get();
   if (found.empty) return;
   await found.docs[0].ref.update({ plan });
 }
@@ -146,7 +159,7 @@ export const stripeWebhook = onRequest(
           const uid = session.client_reference_id;
           const customerId = typeof session.customer === "string" ? session.customer : null;
           if (uid) {
-            await db.collection("users").doc(uid).update({
+            await db().collection("users").doc(uid).update({
               plan: "premium",
               ...(customerId ? { stripeCustomerId: customerId } : {}),
             });
