@@ -31,6 +31,14 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.uid == uid;
     }
 
+    // chat/ はDMで送る写真。Storage ルールからは Firestore を参照できないため
+    // スレッド単位の制限はかけられず、サインイン済みなら読める(closet/ 等と同じ水準)。
+    // URL 自体はダウンロードトークン付きで推測できない。書き込みは本人のみ。
+    match /chat/{uid}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
     // composed/ は Cloud Functions (composeOutfitImage) が Admin SDK で書き込み、
     // 公開URLとして配信する。クライアントからの直接書き込みは禁止。
     match /composed/{uid}/{fileName} {

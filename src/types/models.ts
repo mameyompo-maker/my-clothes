@@ -456,6 +456,12 @@ export interface ChatThread {
   lastMessage: string;
   lastMessageAt: number;
   lastSenderUid: string | null;
+  /**
+   * uid → その人がスレッドを最後に読んだ時刻。既読・未読はすべてこれとの比較で判定する。
+   * メッセージ1件ずつにフラグを持たせると開くたびに全件更新が要るため、この形にしている。
+   * 古いスレッドには存在しないので、読む側は必ず `?? 0` で補うこと。
+   */
+  lastReadAt?: Record<string, number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -552,4 +558,6 @@ export interface ChatMessage {
   senderUid: string;
   text: string;
   createdAt: number;
+  /** 添付写真(Storage の chat/{uid}/ のダウンロードURL)。テキストのみの場合は null。 */
+  imageUrl?: string | null;
 }

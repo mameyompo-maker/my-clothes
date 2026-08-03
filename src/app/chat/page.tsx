@@ -129,18 +129,28 @@ export default function ChatListPage() {
                 {activeThreads.map((t) => {
                   const otherUid = t.memberUids.find((u) => u !== user?.uid) ?? "";
                   const other = peopleByUid[otherUid];
+                  // 相手が最後に送ってきた後、自分がまだスレッドを開いていなければ未読。
+                  const myReadAt = t.lastReadAt?.[user?.uid ?? ""] ?? 0;
+                  const unread = t.lastSenderUid !== null && t.lastSenderUid !== user?.uid && t.lastMessageAt > myReadAt;
                   return (
                     <li key={t.id}>
                       <Link href={`/chat/${t.id}`} className="tappable flex items-center gap-3 rounded-2xl px-2 py-2.5">
                         <Avatar src={other?.avatarUrl} name={other?.name ?? "ユーザー"} size={50} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-bold">{other?.name ?? "ユーザー"}</p>
-                          <p className="truncate text-xs text-muted-foreground">
+                          <p
+                            className={`truncate text-xs ${
+                              unread ? "font-bold text-foreground" : "text-muted-foreground"
+                            }`}
+                          >
                             {t.lastSenderUid === user?.uid ? "あなた: " : ""}
                             {t.lastMessage}
                           </p>
                         </div>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(t.lastMessageAt)}</span>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <span className="text-[11px] text-muted-foreground">{timeAgo(t.lastMessageAt)}</span>
+                          {unread && <span aria-label="未読あり" className="h-2.5 w-2.5 rounded-full bg-accent" />}
+                        </div>
                       </Link>
                     </li>
                   );

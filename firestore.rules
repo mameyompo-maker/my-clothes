@@ -233,8 +233,18 @@ service cloud.firestore {
         && me() in request.resource.data.memberUids
         && request.resource.data.memberUids.size() == 2
         && notBlockedPair(request.resource.data.memberUids);
+      // lastReadAt(既読時刻)は「自分のキー」しか変えられない。
+      // これが無いと相手の既読を偽装したり、勝手に未読へ戻したりできてしまう。
+      // 古いスレッドには lastReadAt が無いので get() の既定値 {} で補う。
+      function readMarksOnlyMine() {
+        return request.resource.data.lastReadAt
+          .diff(resource.data.get('lastReadAt', {}))
+          .affectedKeys().hasOnly([me()]);
+      }
+
       allow update: if isSignedIn() && me() in resource.data.memberUids
-        && changedKeys().hasOnly(['lastMessage', 'lastMessageAt', 'lastSenderUid']);
+        && changedKeys().hasOnly(['lastMessage', 'lastMessageAt', 'lastSenderUid', 'lastReadAt'])
+        && (!changedKeys().hasAny(['lastReadAt']) || readMarksOnlyMine());
       allow delete: if false;
 
       match /messages/{messageId} {

@@ -1114,14 +1114,39 @@ export function watchChatMessages(id: string, onChange: (messages: ChatMessage[]
   return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as ChatMessage)));
 }
 
-export async function sendChatMessage(id: string, senderUid: string, text: string): Promise<void> {
+/** スレッド本体を購読する。相手の既読時刻(lastReadAt)をリアルタイムに拾うために使う。 */
+export function watchChatThread(id: string, onChange: (thread: ChatThread | null) => void): Unsubscribe {
+  const database = requireDb();
+  return onSnapshot(doc(database, "chatThreads", id), (snap) =>
+    onChange(snap.exists() ? (snap.data() as ChatThread) : null)
+  );
+}
+
+/**
+ * 自分の既読時刻を今に更新する。ルール側で「lastReadAt のうち自分のキーだけ」しか
+ * 書けないように縛ってあるので、相手の既読を偽装することはできない。
+ */
+export async function markChatThreadRead(id: string, uid: string): Promise<void> {
+  const database = requireDb();
+  await updateDoc(doc(database, "chatThreads", id), { [`lastReadAt.${uid}`]: Date.now() });
+}
+
+export async function sendChatMessage(
+  id: string,
+  senderUid: string,
+  text: string,
+  imageUrl: string | null = null
+): Promise<void> {
   const database = requireDb();
   const messageId = crypto.randomUUID();
-  const message: ChatMessage = { id: messageId, senderUid, text, createdAt: Date.now() };
+  const message: ChatMessage = { id: messageId, senderUid, text, createdAt: Date.now(), imageUrl };
   await setDoc(doc(database, "chatThreads", id, "messages", messageId), message);
   await updateDoc(doc(database, "chatThreads", id), {
-    lastMessage: text,
+    lastMessage: text || "写真を送りました",
     lastMessageAt: message.createdAt,
     lastSenderUid: senderUid,
+    // 送った本人にとっては読んだのと同じ。ここで一緒に進めておかないと、
+    // 自分の送信で自分のスレッドが未読表示になる。
+    [`lastReadAt.${senderUid}`]: message.createdAt,
   });
 }
