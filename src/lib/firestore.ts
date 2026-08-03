@@ -403,6 +403,25 @@ export async function addSeedClosetItems(
   );
 }
 
+/**
+ * 初期クローゼットを入れ直す。
+ *
+ * サインイン時の投入は「クローゼットが空のとき」しか走らないため、既にアカウントを
+ * 持っている人は初期クローゼットを選び直せない。実際、イラスト時代に作られた
+ * アカウントは `/seed/*.svg` を指したまま取り残され、SVGを削除した時点で
+ * 画像が全部壊れた。そこから復帰する手段としてこれを用意している。
+ *
+ * 自分で登録した服(isSeed:false)には触れない。消すのは初期投入分だけ。
+ */
+export async function replaceSeedClosetItems(
+  ownerUid: string,
+  seedItems: { category: ClosetCategory; label: string; imageUrl: string }[]
+): Promise<void> {
+  const existing = await listClosetItems(ownerUid);
+  await Promise.all(existing.filter((i) => i.isSeed).map((i) => deleteClosetItem(i.id)));
+  await addSeedClosetItems(ownerUid, seedItems);
+}
+
 export async function listClosetItems(ownerUid: string): Promise<ClosetItem[]> {
   const database = requireDb();
   const q = query(collection(database, "closetItems"), where("ownerUid", "==", ownerUid));

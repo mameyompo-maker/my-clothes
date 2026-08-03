@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
-import { deleteClosetItem, listClosetItems, updateClosetItem } from "@/lib/firestore";
+import {
+  deleteClosetItem,
+  listClosetItems,
+  replaceSeedClosetItems,
+  updateClosetItem,
+} from "@/lib/firestore";
+import { seedItemsFor, WARDROBE_STYLES, type WardrobeStyle } from "@/data/seedClosetItems";
 import {
   CLOSET_CATEGORIES,
   SEASONS,
@@ -57,6 +63,15 @@ export default function ClosetPage() {
 
   const thisSeason = seasonOfMonth(new Date().getMonth() + 1);
 
+  // 初期投入分がイラスト(SVG)を指したまま残っているアカウントの検出。
+  // イラストは配信を止めたので、この状態だと画像が全部壊れて表示される。
+  const hasBrokenSeed = (items ?? []).some((i) => i.isSeed && i.imageUrl.endsWith(".svg"));
+
+  async function reloadItems() {
+    if (!user) return;
+    setItems(await listClosetItems(user.uid));
+  }
+
   async function handleSaveEdit(patch: Partial<ClosetItem>) {
     if (!editing) return;
     await updateClosetItem(editing.id, patch);
@@ -90,6 +105,17 @@ export default function ClosetPage() {
       />
 
       <div className="mx-auto max-w-lg px-4 pb-28 pt-4">
+        {hasBrokenSeed && user && (
+          <div className="mb-5 rounded-3xl border border-accent/30 bg-accent-soft p-4">
+            <p className="text-sm font-bold text-accent">初期クローゼットの写真を入れ替えられます</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              最初から入っていたイラストを、実際の服の写真に差し替えました。
+              下から選んで入れ直してください。自分で登録した服はそのまま残ります。
+            </p>
+            <SeedClosetPicker uid={user.uid} onDone={reloadItems} />
+          </div>
+        )}
+
         <div className="no-scrollbar -mx-4 mb-2.5 flex gap-2 overflow-x-auto px-4">
           <Chip selected={category === "all"} onClick={() => setCategory("all")}>
             すべて{items ? ` (${items.length})` : ""}
@@ -139,22 +165,33 @@ export default function ClosetPage() {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={<IconCloset className="h-10 w-10" />}
-            title={items.length === 0 ? "クローゼットが空です" : "条件に合う服がありません"}
-            description={
-              items.length === 0
-                ? "買った服を先に登録しておくと、毎朝の組み合わせ選びが一気に速くなります。"
-                : "絞り込みを変えてみてください。"
-            }
-            action={
-              items.length === 0 ? (
-                <Link href="/closet/add">
-                  <PrimaryButton full={false}>最初の1着を登録</PrimaryButton>
-                </Link>
-              ) : undefined
-            }
-          />
+          <>
+            <EmptyState
+              icon={<IconCloset className="h-10 w-10" />}
+              title={items.length === 0 ? "クローゼットが空です" : "条件に合う服がありません"}
+              description={
+                items.length === 0
+                  ? "買った服を先に登録しておくと、毎朝の組み合わせ選びが一気に速くなります。"
+                  : "絞り込みを変えてみてください。"
+              }
+              action={
+                items.length === 0 ? (
+                  <Link href="/closet/add">
+                    <PrimaryButton full={false}>最初の1着を登録</PrimaryButton>
+                  </Link>
+                ) : undefined
+              }
+            />
+            {items.length === 0 && user && (
+              <div className="mt-4 rounded-3xl border border-border bg-surface p-4">
+                <p className="text-sm font-bold">見本の服から始めることもできます</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  実際の服の写真を入れておけるので、自分の服を撮る前でも2択を試せます。
+                </p>
+                <SeedClosetPicker uid={user.uid} onDone={reloadItems} />
+              </div>
+            )}
+          </>
         ) : (
           <HangerRail items={filtered} onSelect={(item) => setEditing(item)} />
         )}
@@ -164,6 +201,66 @@ export default function ClosetPage() {
         {editing && <EditItemForm item={editing} onSave={handleSaveEdit} onDelete={handleDelete} />}
       </BottomSheet>
     </>
+  );
+}
+
+/**
+ * 初期クローゼットを選んで入れ直す。
+ *
+ * オンボーディングの選択はサインイン時にしか通らず、しかも「クローゼットが空のとき」
+ * だけしか投入しない。既にアカウントを持っている人には届かないので、ここから
+ * いつでも選び直せるようにしている。
+ */
+function SeedClosetPicker({ uid, onDone }: { uid: string; onDone: () => Promise<void> }) {
+  const [style, setStyle] = useState<WardrobeStyle>("women");
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleApply() {
+    setWorking(true);
+    setError(null);
+    try {
+      await replaceSeedClosetItems(uid, seedItemsFor(style));
+      await onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "入れ替えに失敗しました。");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <div className="mt-3">
+      <div className="space-y-2">
+        {WARDROBE_STYLES.map((option) => {
+          const selected = style === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setStyle(option.value)}
+              aria-pressed={selected}
+              className={`tappable w-full rounded-2xl border px-4 py-2.5 text-left transition-colors ${
+                selected ? "border-accent bg-surface" : "border-border bg-surface"
+              }`}
+            >
+              <span className={`block text-sm font-semibold ${selected ? "text-accent" : ""}`}>
+                {option.label}
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                {option.caption}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3">
+        <PrimaryButton onClick={handleApply} disabled={working}>
+          {working ? "入れ替えています…" : "この内容で入れ直す"}
+        </PrimaryButton>
+      </div>
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+    </div>
   );
 }
 
