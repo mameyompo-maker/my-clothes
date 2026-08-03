@@ -137,6 +137,20 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
         </p>
       )}
 
+      {(post.hashtags ?? []).length > 0 && (
+        <div className="flex flex-wrap gap-x-2 gap-y-1 px-4 pt-2">
+          {(post.hashtags ?? []).map((tag) => (
+            <Link
+              key={tag}
+              href={`/tag/${encodeURIComponent(tag)}`}
+              className="tappable text-xs font-semibold text-accent"
+            >
+              #{tag}
+            </Link>
+          ))}
+        </div>
+      )}
+
       {(genreLabels.length > 0 || seasonLabel) && (
         <div className="flex flex-wrap gap-1.5 px-4 pt-2">
           {seasonLabel && (

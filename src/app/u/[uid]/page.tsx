@@ -6,18 +6,33 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
+  blockUser,
   ensureChatThread,
   followUser,
   getStylePostsByIds,
   getUserProfile,
   isFollowing,
+  reportContent,
   listPublicStylePostsOf,
   unfollowUser,
 } from "@/lib/firestore";
-import { BODY_TYPES, PERSONAL_COLORS, STYLE_GENRES, threadId, type StylePost, type UserProfile } from "@/types/models";
+import {
+  BODY_TYPES,
+  PERSONAL_COLORS,
+  REPORT_REASONS,
+  STYLE_GENRES,
+  threadId,
+  type ReportReason,
+  type StylePost,
+  type UserProfile,
+} from "@/types/models";
 import {
   Avatar,
+  BottomSheet,
+  Chip,
   EmptyState,
+  Field,
+  inputClass,
   IconButton,
   PrimaryButton,
   SecondaryButton,
@@ -30,9 +45,14 @@ import { IconChevronLeft, IconGrid, IconMessage } from "@/components/icons";
 export default function UserProfilePage() {
   const { uid } = useParams<{ uid: string }>();
   const router = useRouter();
-  const { user, refreshProfile } = useAuth();
+  const { user, refreshProfile, hiddenUids, refreshBlocks } = useAuth();
 
   const [target, setTarget] = useState<UserProfile | null>(null);
+  const [safetyOpen, setSafetyOpen] = useState(false);
+  const [reportReason, setReportReason] = useState<ReportReason>("harassment");
+  const [reportDetail, setReportDetail] = useState("");
+  const [safetyBusy, setSafetyBusy] = useState(false);
+  const [safetyDone, setSafetyDone] = useState("");
   const [notFound, setNotFound] = useState(false);
   const [posts, setPosts] = useState<StylePost[] | null>(null);
   const [favorites, setFavorites] = useState<StylePost[]>([]);
@@ -200,6 +220,17 @@ export default function UserProfilePage() {
                   <IconMessage className="h-5 w-5" />
                 </button>
               </div>
+
+              {/* 安全のための導線。目立たせないが、探せば必ず見つかる位置に置く。 */}
+              <div className="mb-6 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSafetyOpen(true)}
+                  className="tappable text-[11px] font-semibold text-muted-foreground underline underline-offset-2"
+                >
+                  報告・ブロック
+                </button>
+              </div>
             </div>
 
             <div className="border-t border-border">
@@ -207,7 +238,17 @@ export default function UserProfilePage() {
                 <IconGrid className="h-4 w-4" /> 公開中の投稿
               </div>
 
-              {posts === null ? (
+              {/* ブロック関係がある相手の投稿は出さない。どちら向きのブロックかは明かさない
+                  (「あなたはブロックされています」と伝えると、それ自体が新しい摩擦を生むため)。 */}
+              {hiddenUids.has(uid) && (
+                <p className="px-4 py-10 text-center text-xs leading-relaxed text-muted-foreground">
+                  この人の投稿は表示されません。
+                  <br />
+                  ブロックを解除するには、報告・ブロックの画面から操作してください。
+                </p>
+              )}
+
+              {hiddenUids.has(uid) ? null : posts === null ? (
                 <div className="grid grid-cols-3 gap-[2px]">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <Skeleton key={i} className="aspect-square rounded-none" />
@@ -230,6 +271,91 @@ export default function UserProfilePage() {
           </>
         )}
       </div>
+
+      <BottomSheet open={safetyOpen} onClose={() => setSafetyOpen(false)} title="報告・ブロック">
+        {target && (
+          <div className="pb-4">
+            {safetyDone ? (
+              <p className="py-6 text-center text-sm font-semibold">{safetyDone}</p>
+            ) : (
+              <>
+                <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+                  ブロックすると、お互いの投稿が表示されなくなり、DMも届かなくなります。
+                  相手に通知はされません。
+                </p>
+
+                <button
+                  type="button"
+                  disabled={safetyBusy}
+                  onClick={async () => {
+                    if (!user) return;
+                    setSafetyBusy(true);
+                    try {
+                      await blockUser(user.uid, target.uid);
+                      await refreshBlocks();
+                      setSafetyDone(`${target.name}さんをブロックしました。`);
+                    } catch (err) {
+                      setSafetyDone(err instanceof Error ? err.message : "ブロックに失敗しました。");
+                    } finally {
+                      setSafetyBusy(false);
+                    }
+                  }}
+                  className="tappable mb-6 w-full rounded-full border border-danger/50 px-4 py-3 text-sm font-bold text-danger disabled:opacity-50"
+                >
+                  {safetyBusy ? "処理しています…" : "このユーザーをブロックする"}
+                </button>
+
+                <Field label="運営に報告する">
+                  <div className="flex flex-wrap gap-2">
+                    {REPORT_REASONS.map((r) => (
+                      <Chip
+                        key={r.value}
+                        size="sm"
+                        selected={reportReason === r.value}
+                        onClick={() => setReportReason(r.value)}
+                      >
+                        {r.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="詳しい内容(任意)">
+                  <textarea
+                    value={reportDetail}
+                    onChange={(e) => setReportDetail(e.target.value)}
+                    rows={3}
+                    className={`${inputClass} resize-none`}
+                  />
+                </Field>
+                <PrimaryButton
+                  disabled={safetyBusy}
+                  onClick={async () => {
+                    if (!user) return;
+                    setSafetyBusy(true);
+                    try {
+                      await reportContent({
+                        reporterUid: user.uid,
+                        targetType: "user",
+                        targetId: target.uid,
+                        targetOwnerUid: target.uid,
+                        reason: reportReason,
+                        detail: reportDetail.trim(),
+                      });
+                      setSafetyDone("報告を受け付けました。ご協力ありがとうございます。");
+                    } catch {
+                      setSafetyDone("報告の送信に失敗しました。");
+                    } finally {
+                      setSafetyBusy(false);
+                    }
+                  }}
+                >
+                  報告する
+                </PrimaryButton>
+              </>
+            )}
+          </div>
+        )}
+      </BottomSheet>
     </>
   );
 }

@@ -14,6 +14,7 @@ import {
 import { seedItemsFor, WARDROBE_STYLES, type WardrobeStyle } from "@/data/seedClosetItems";
 import {
   CLOSET_CATEGORIES,
+  parseHashtags,
   SEASONS,
   STYLE_GENRES,
   seasonOfMonth,
@@ -390,6 +391,8 @@ function EditItemForm({
   const [genres, setGenres] = useState<StyleGenre[]>(item.genres ?? []);
   const [seasons, setSeasons] = useState<Season[]>(item.seasons ?? []);
   const [category, setCategory] = useState<ClosetCategory>(item.category);
+  // この服に付けるハッシュタグ。投稿でこの服をタグ付けすると自動で引き継がれる。
+  const [tagsText, setTagsText] = useState((item.hashtags ?? []).map((t) => `#${t}`).join(" "));
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -422,6 +425,18 @@ function EditItemForm({
             </Chip>
           ))}
         </div>
+      </Field>
+
+      <Field
+        label="ハッシュタグ"
+        hint="この服を投稿にタグ付けすると、ここのタグが自動で付きます。スペース区切り。"
+      >
+        <input
+          value={tagsText}
+          onChange={(e) => setTagsText(e.target.value)}
+          placeholder="#白シャツ #きれいめ"
+          className={inputClass}
+        />
       </Field>
 
       <div className="grid grid-cols-3 gap-2">
@@ -465,7 +480,16 @@ function EditItemForm({
           disabled={saving || !label.trim()}
           onClick={async () => {
             setSaving(true);
-            await onSave({ label: label.trim(), brand, size, color, genres, seasons, category });
+            await onSave({
+              label: label.trim(),
+              brand,
+              size,
+              color,
+              genres,
+              seasons,
+              category,
+              hashtags: parseHashtags(tagsText),
+            });
             setSaving(false);
           }}
         >

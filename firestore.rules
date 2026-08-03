@@ -56,6 +56,26 @@ service cloud.firestore {
             || request.resource.data.followerCount == resource.data.followerCount - 1);
     }
 
+    // blocks: 自分がブロックした記録。ID を blocker__blocked に固定しているので、
+    // 自分のものかどうかは ID から判定でき、余計な読み取りが要らない。
+    // ブロックされた側からは読めない(ブロックされたことを気付かせないため)。
+    match /blocks/{blockDocId} {
+      allow read: if isSignedIn() && resource.data.blockerUid == me();
+      allow create: if isSignedIn()
+        && request.resource.data.blockerUid == me()
+        && request.resource.data.blockedUid != me()
+        && blockDocId == me() + '__' + request.resource.data.blockedUid;
+      allow delete: if isSignedIn() && resource.data.blockerUid == me();
+      allow update: if false;
+    }
+
+    // reports: 運営が Admin SDK で読むための投書箱。
+    // **誰にも読ませない**(本人にも)。通報の有無が相手に伝わる経路を作らないため。
+    match /reports/{reportId} {
+      allow create: if isSignedIn() && request.resource.data.reporterUid == me();
+      allow read, update, delete: if false;
+    }
+
     // follows: 自分が follower である行だけ作れる/消せる。
     match /follows/{followId} {
       allow read: if isSignedIn();
@@ -169,9 +189,19 @@ service cloud.firestore {
       // スレッドが1つも作れず、DMが丸ごと使えなくなる(実際にそうなっていた)。
       allow get: if isSignedIn() && (resource == null || me() in resource.data.memberUids);
       allow list: if isSignedIn() && me() in resource.data.memberUids;
+      // ブロックしている/されている相手とはスレッドを作れない。
+      // DM は相手の画面に直接届くので、ここだけはルールでも止める。
+      function notBlockedPair(members) {
+        return !exists(/databases/$(database)/documents/blocks/$(me() + '__' + members[0]))
+          && !exists(/databases/$(database)/documents/blocks/$(me() + '__' + members[1]))
+          && !exists(/databases/$(database)/documents/blocks/$(members[0] + '__' + me()))
+          && !exists(/databases/$(database)/documents/blocks/$(members[1] + '__' + me()));
+      }
+
       allow create: if isSignedIn()
         && me() in request.resource.data.memberUids
-        && request.resource.data.memberUids.size() == 2;
+        && request.resource.data.memberUids.size() == 2
+        && notBlockedPair(request.resource.data.memberUids);
       allow update: if isSignedIn() && me() in resource.data.memberUids
         && changedKeys().hasOnly(['lastMessage', 'lastMessageAt', 'lastSenderUid']);
       allow delete: if false;

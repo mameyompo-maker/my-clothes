@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -8,6 +8,9 @@ import { createStylePost, getOutfitPost, listClosetItems } from "@/lib/firestore
 import { getCurrentPlaceName } from "@/lib/weather";
 import { compressImage } from "@/lib/image";
 import {
+  extractHashtagsFromText,
+  mergeHashtags,
+  parseHashtags,
   SEASONS,
   STYLE_GENRES,
   seasonOfMonth,
@@ -48,6 +51,8 @@ function NewStylePostContent() {
   // 撮った場所。市区町村までしか持たない。他人から見えるので、付けるかは本人が決める。
   const [placeName, setPlaceName] = useState("");
   const [locating, setLocating] = useState(false);
+  // 自分で足すハッシュタグ。服由来のタグとは別に持ち、投稿時に合流させる。
+  const [manualTags, setManualTags] = useState("");
   const [closetItems, setClosetItems] = useState<ClosetItem[]>([]);
   const [pendingPoint, setPendingPoint] = useState<{ x: number; y: number } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -120,6 +125,23 @@ function NewStylePostContent() {
     setGenres((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
   }
 
+  /**
+   * タグ付けした服に登録されているハッシュタグ。
+   *
+   * 「服を選んだら勝手に付く」を実現しているのがここ。タグを服そのものに持たせてあるので、
+   * 着るたびに打ち直さずに済む。投稿はそれを引き継ぐだけ。
+   */
+  const tagsFromItems = useMemo(() => {
+    const ids = itemTags.map((t) => t.itemId).filter((id): id is string => Boolean(id));
+    return mergeHashtags(...ids.map((id) => closetItems.find((i) => i.id === id)?.hashtags));
+  }, [itemTags, closetItems]);
+
+  /** 実際に投稿へ載るタグ。服由来 + キャプション中の #タグ + 手入力の合流。 */
+  const finalHashtags = useMemo(
+    () => mergeHashtags(tagsFromItems, extractHashtagsFromText(caption), parseHashtags(manualTags)),
+    [tagsFromItems, caption, manualTags]
+  );
+
   async function handleSubmit() {
     if (!user || !profile || !file) return;
     setSaving(true);
@@ -136,6 +158,7 @@ function NewStylePostContent() {
           visibility,
           outfitPostId,
           placeName: placeName.trim() || null,
+          hashtags: finalHashtags,
         },
         compressed
       );
@@ -242,6 +265,39 @@ function NewStylePostContent() {
                 友達だけ
               </Chip>
             </div>
+          </Field>
+
+          <Field
+            label="ハッシュタグ"
+            hint="タグ付けした服のタグが自動で付きます。足したいものだけ入力してください(スペース区切り)。"
+          >
+            <input
+              value={manualTags}
+              onChange={(e) => setManualTags(e.target.value)}
+              placeholder="#今日のコーデ #古着mix"
+              className={inputClass}
+            />
+            {finalHashtags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {finalHashtags.map((tag) => (
+                  <span
+                    key={tag}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      tagsFromItems.includes(tag)
+                        ? "bg-accent-soft text-accent"
+                        : "bg-surface-muted text-muted-foreground"
+                    }`}
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
+            {tagsFromItems.length > 0 && (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                色が付いているのは、選んだ服にもともと登録されているタグです。
+              </p>
+            )}
           </Field>
 
           <Field

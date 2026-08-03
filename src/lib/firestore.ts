@@ -20,10 +20,14 @@ import {
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "./firebase";
 import {
+  blockId,
   followId,
   threadId,
+  type Block,
+  type Report,
   type ChatMessage,
   type ChatThread,
+  normalizeHashtag,
   type ClosetCategory,
   type Wardrobe,
   type ClosetItem,
@@ -232,6 +236,59 @@ export async function redeemInviteCode(myUid: string, rawCode: string): Promise<
   return { friendUid, friendName: (friendDoc.data() as UserProfile).name ?? "友達" };
 }
 
+
+// ---------- Blocks / Reports ----------
+
+/**
+ * ブロック。
+ *
+ * 相手の投稿・コメント・DMを自分の画面から消し、こちらからも見えなくする。
+ * **判定はクライアント側の除外が主**で、ルールでは DM の作成だけを止めている。
+ * すべてをルールで塞ごうとすると、投稿を1件読むたびに blocks を get することになり、
+ * 読み取り課金と表示速度に跳ね返るため。相手に「ブロックされた」と通知はしない。
+ */
+export async function blockUser(myUid: string, targetUid: string): Promise<void> {
+  if (myUid === targetUid) throw new Error("自分自身はブロックできません。");
+  const database = requireDb();
+  const id = blockId(myUid, targetUid);
+  const block: Block = { id, blockerUid: myUid, blockedUid: targetUid, createdAt: Date.now() };
+  await setDoc(doc(database, "blocks", id), block);
+
+  // つながりも切る。ブロックしたのにフィードに出続けるのは目的に反する。
+  await Promise.allSettled([
+    unfollowUser(myUid, targetUid),
+    unfollowUser(targetUid, myUid),
+  ]);
+}
+
+export async function unblockUser(myUid: string, targetUid: string): Promise<void> {
+  const database = requireDb();
+  await deleteDoc(doc(database, "blocks", blockId(myUid, targetUid)));
+}
+
+/** 自分がブロックしている相手の一覧。表示のたびに引かず、起動時に1回読んで持ち回る。 */
+export async function listBlockedUids(myUid: string): Promise<string[]> {
+  const database = requireDb();
+  const q = query(collection(database, "blocks"), where("blockerUid", "==", myUid));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => (d.data() as Block).blockedUid);
+}
+
+/** 自分をブロックしている相手。相手の画面から自分を隠すためではなく、逆方向の遮断に使う。 */
+export async function listBlockedByUids(myUid: string): Promise<string[]> {
+  const database = requireDb();
+  const q = query(collection(database, "blocks"), where("blockedUid", "==", myUid));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => (d.data() as Block).blockerUid);
+}
+
+export async function reportContent(input: Omit<Report, "id" | "createdAt">): Promise<void> {
+  const database = requireDb();
+  const id = crypto.randomUUID();
+  const report: Report = { ...input, id, createdAt: Date.now() };
+  await setDoc(doc(database, "reports", id), report);
+}
+
 // ---------- Follows ----------
 
 export async function followUser(myUid: string, targetUid: string): Promise<void> {
@@ -377,7 +434,13 @@ export async function deleteClosetItem(itemId: string): Promise<void> {
 
 export async function addSeedClosetItems(
   ownerUid: string,
-  seedItems: { category: ClosetCategory; label: string; imageUrl: string; wardrobe?: Wardrobe }[]
+  seedItems: {
+    category: ClosetCategory;
+    label: string;
+    imageUrl: string;
+    wardrobe?: Wardrobe;
+    hashtags?: string[];
+  }[]
 ): Promise<void> {
   const database = requireDb();
   await Promise.all(
@@ -400,6 +463,7 @@ export async function addSeedClosetItems(
         wearCount: 0,
         lastWornAt: null,
         wardrobe: seed.wardrobe ?? null,
+        hashtags: seed.hashtags ?? [],
       };
       return setDoc(doc(database, "closetItems", id), item);
     })
@@ -624,6 +688,8 @@ export interface StylePostInput {
   outfitPostId: string | null;
   /** 市区町村レベルの地名。任意。 */
   placeName?: string | null;
+  /** 正規化済みのハッシュタグ。服由来 + 本人入力の合流結果を渡すこと。 */
+  hashtags?: string[];
 }
 
 export async function createStylePost(
@@ -651,6 +717,7 @@ export async function createStylePost(
     createdAt: Date.now(),
     outfitPostId: input.outfitPostId,
     placeName: input.placeName ?? null,
+    hashtags: input.hashtags ?? [],
   };
   await setDoc(doc(database, "stylePosts", id), post);
   await updateDoc(doc(database, "users", owner.uid), { postCount: increment(1) });
@@ -665,7 +732,7 @@ export async function createStylePost(
  */
 export type StylePostEditableFields = Pick<
   StylePost,
-  "caption" | "itemTags" | "genres" | "season" | "visibility" | "placeName"
+  "caption" | "itemTags" | "genres" | "season" | "visibility" | "placeName" | "hashtags"
 >;
 
 export async function updateStylePost(
@@ -698,6 +765,29 @@ export function watchPublicStylePosts(onChange: (posts: StylePost[]) => void): U
     limit(100)
   );
   return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as StylePost)));
+}
+
+/**
+ * ハッシュタグで公開投稿を引く。
+ *
+ * `array-contains` は1クエリに1つしか使えないので、複数タグのAND検索はできない。
+ * 複合インデックス(visibility + hashtags + createdAt)が必要になるが、
+ * Firestore が初回実行時にコンソールへ作成リンクを出すので、それを踏めばよい。
+ */
+export async function listStylePostsByHashtag(tag: string, max = 60): Promise<StylePost[]> {
+  const database = requireDb();
+  const normalized = normalizeHashtag(tag);
+  if (!normalized) return [];
+  const q = query(
+    collection(database, "stylePosts"),
+    where("visibility", "==", "public"),
+    where("hashtags", "array-contains", normalized),
+    limit(max)
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => d.data() as StylePost)
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function listUserStylePosts(ownerUid: string): Promise<StylePost[]> {

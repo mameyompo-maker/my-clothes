@@ -12,14 +12,17 @@ import { EmptyState, IconButton, PrimaryButton, Skeleton, TopBar } from "@/compo
 import { IconMessage, IconSearch, IconSparkles } from "@/components/icons";
 
 export default function HomeFeedPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, hiddenUids } = useAuth();
   const [posts, setPosts] = useState<StylePost[] | null>(null);
   const [itemCount, setItemCount] = useState(0);
 
   useEffect(() => {
-    const unsub = watchPublicStylePosts(setPosts);
+    // ブロックした相手・自分をブロックした相手の投稿はフィードから外す。
+    const unsub = watchPublicStylePosts((list) =>
+      setPosts(list.filter((p) => !hiddenUids.has(p.ownerUid)))
+    );
     return unsub;
-  }, []);
+  }, [hiddenUids]);
 
   useEffect(() => {
     if (!user) return;

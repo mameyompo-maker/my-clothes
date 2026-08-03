@@ -192,6 +192,50 @@ export interface ClosetItem {
    * 自分で登録した服には付かない(＝ null)。付いていない服は常に表示する。
    */
   wardrobe?: Wardrobe | null;
+  /**
+   * この服そのものに付いたハッシュタグ(「#白シャツ」「#きれいめ」など)。
+   *
+   * **投稿にこの服をタグ付けすると、ここのタグが自動で投稿にも付く。**
+   * 服を登録するときに一度書いておけば、着るたびに毎回タグを打ち直さずに済む。
+   * 投稿側では本人が足したタグと合流させる(`mergeHashtags`)。
+   */
+  hashtags?: string[];
+}
+
+/**
+ * ハッシュタグの正規化。
+ *
+ * 先頭の # を落とし、小文字化し、空白を除く。「#白シャツ」と「白シャツ」と
+ * 「 #白シャツ 」が別タグとして散らばると、集まるはずの投稿が分断されるため、
+ * **保存も検索も必ずこの関数を通した値で行う。**
+ */
+export function normalizeHashtag(raw: string): string | null {
+  const t = raw.trim().replace(/^#+/, "").replace(/\s+/g, "").toLowerCase();
+  if (!t) return null;
+  if (t.length > 30) return t.slice(0, 30);
+  return t;
+}
+
+/** 文字列(スペース区切り・#付きどちらでも)をタグの配列にする。 */
+export function parseHashtags(input: string): string[] {
+  return dedupeHashtags(input.split(/[\s、,]+/).map(normalizeHashtag).filter((t): t is string => Boolean(t)));
+}
+
+/** キャプション本文から #タグ を拾う。本文に書いたタグも効くようにするため。 */
+export function extractHashtagsFromText(text: string): string[] {
+  const found = text.match(/#[^\s#、,]+/g) ?? [];
+  return dedupeHashtags(found.map(normalizeHashtag).filter((t): t is string => Boolean(t)));
+}
+
+function dedupeHashtags(tags: string[]): string[] {
+  return Array.from(new Set(tags));
+}
+
+/** 服由来のタグと本人が書いたタグを合流させる。上限は検索性を保つため20個。 */
+export function mergeHashtags(...groups: (string[] | undefined)[]): string[] {
+  const all: string[] = [];
+  for (const g of groups) for (const t of g ?? []) all.push(t);
+  return dedupeHashtags(all).slice(0, 20);
 }
 
 /** メンズかウィメンズか。「主に使う服」の設定と、見本の服の出し分けに使う。 */
@@ -351,6 +395,11 @@ export interface StylePost {
    * 若い利用者が多い想定なので、自宅が特定できる粒度の位置情報は最初から持たない。
    */
   placeName?: string | null;
+  /**
+   * 検索・集約に使うハッシュタグ。正規化済みの文字列だけを入れる。
+   * タグ付けした服のタグ + キャプション中の #タグ + 本人が手で足したタグ の合流。
+   */
+  hashtags?: string[];
 }
 
 export interface PostLike {
@@ -397,6 +446,51 @@ export interface ChatThread {
   lastMessage: string;
   lastMessageAt: number;
   lastSenderUid: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// ブロックと通報
+// ---------------------------------------------------------------------------
+
+/**
+ * ブロック。ID を `blocker__blocked` に固定しているので、
+ * 「自分がその人をブロックしているか」をクエリなしで1件取得できる。
+ */
+export interface Block {
+  id: string;
+  blockerUid: string;
+  blockedUid: string;
+  createdAt: number;
+}
+
+export function blockId(blockerUid: string, blockedUid: string): string {
+  return `${blockerUid}__${blockedUid}`;
+}
+
+export type ReportReason = "spam" | "harassment" | "inappropriate" | "impersonation" | "other";
+
+export const REPORT_REASONS: { value: ReportReason; label: string }[] = [
+  { value: "harassment", label: "いやがらせ・攻撃的" },
+  { value: "inappropriate", label: "不適切な内容" },
+  { value: "spam", label: "スパム・宣伝" },
+  { value: "impersonation", label: "なりすまし" },
+  { value: "other", label: "その他" },
+];
+
+/**
+ * 通報。運営が後から読むための記録で、アプリ内では誰にも表示しない。
+ * 本人にも読み返せないようにしてあるのは、通報したこと自体を相手に知られる経路を作らないため。
+ */
+export interface Report {
+  id: string;
+  reporterUid: string;
+  /** 通報対象の種類。ユーザーそのものか、特定の投稿か。 */
+  targetType: "user" | "stylePost" | "comment";
+  targetId: string;
+  targetOwnerUid: string;
+  reason: ReportReason;
+  detail: string;
+  createdAt: number;
 }
 
 export function threadId(a: string, b: string): string {
