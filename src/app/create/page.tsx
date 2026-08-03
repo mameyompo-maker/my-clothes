@@ -25,6 +25,9 @@ import {
   CLOSET_CATEGORIES,
   FREE_UNDO_PER_DAY,
   isPremium,
+  otherWardrobe,
+  WARDROBE_LABELS,
+  wardrobeOfItem,
   type BuildMode,
   type ClosetCategory,
   type ClosetItem,
@@ -76,8 +79,11 @@ export default function CreatePostPage() {
   // 今日すでに取り消した回数。無料プランは FREE_UNDO_PER_DAY 回まで。
   const [undosToday, setUndosToday] = useState(0);
   const [undoing, setUndoing] = useState(false);
+  // 「主に使う服」の反対側も出すか。既定は出さない。
+  const [showOtherWardrobe, setShowOtherWardrobe] = useState(false);
 
   const premium = isPremium(profile);
+  const primaryWardrobe = profile?.primaryWardrobe ?? null;
 
   const [step, setStep] = useState<Step>("mode");
   const [buildMode, setBuildMode] = useState<BuildMode>("topDown");
@@ -146,6 +152,27 @@ export default function CreatePostPage() {
     });
   }
 
+  /**
+   * 服を選ぶ画面に出す一覧。
+   *
+   * 「主に使う服」に合う見本だけを既定で出す。メンズとウィメンズを両方入れている人は
+   * 一覧が倍になって選びにくいため。自分で登録した服(wardrobe が付かない)は
+   * どちらの設定でも常に出す——本人の服を隠す理由が無いので。
+   */
+  const visibleItems = useMemo(() => {
+    if (!primaryWardrobe || showOtherWardrobe) return closetItems;
+    return closetItems.filter((i) => {
+      const w = wardrobeOfItem(i);
+      return w === null || w === primaryWardrobe;
+    });
+  }, [closetItems, primaryWardrobe, showOtherWardrobe]);
+
+  /** 反対側の見本を持っているときだけ、切り替えを出す意味がある。 */
+  const hasOtherWardrobeItems = useMemo(() => {
+    if (!primaryWardrobe) return false;
+    return closetItems.some((i) => wardrobeOfItem(i) === otherWardrobe(primaryWardrobe));
+  }, [closetItems, primaryWardrobe]);
+
   function toggleItem(item: ClosetItem) {
     const current = draft.itemIdsByCategory[item.category];
     const nextMap = { ...draft.itemIdsByCategory };
@@ -155,7 +182,8 @@ export default function CreatePostPage() {
   }
 
   function applySuggestion(target: Slot, hero?: ClosetItem | null) {
-    const suggestion = suggestOutfit(closetItems, {
+    // おまかせも「主に使う服」に従う。設定と違う側の服が勝手に出てくると意図に反するため。
+    const suggestion = suggestOutfit(visibleItems, {
       favoriteGenres: profile?.favoriteGenres ?? [],
       heroItem: hero ?? null,
     });
@@ -404,8 +432,8 @@ export default function CreatePostPage() {
   if (step === "build") {
     const itemsForPicker =
       buildMode === "hero" && !slotReady(slot)
-        ? closetItems
-        : closetItems.filter((i) => i.category === activeCategory);
+        ? visibleItems
+        : visibleItems.filter((i) => i.category === activeCategory);
 
     return (
       <>
@@ -488,7 +516,7 @@ export default function CreatePostPage() {
                   : "今日いちばん着たい1着をえらんでください"}
               </p>
               <HangerRail
-                items={closetItems}
+                items={visibleItems}
                 selectedIds={Object.values(draft.itemIdsByCategory) as string[]}
                 onSelect={(item) => {
                   // 残りを自動で埋めるのはプレミアム機能。無料では主役だけ置いて、
@@ -501,7 +529,7 @@ export default function CreatePostPage() {
           ) : (
             <>
               <div className="no-scrollbar -mx-4 mb-4 flex gap-2 overflow-x-auto px-4">
-                {CLOSET_CATEGORIES.filter((c) => closetItems.some((i) => i.category === c.value)).map((c) => (
+                {CLOSET_CATEGORIES.filter((c) => visibleItems.some((i) => i.category === c.value)).map((c) => (
                   <Chip key={c.value} selected={activeCategory === c.value} onClick={() => setCategoryOverride(c.value)}>
                     {c.label}
                     {draft.itemIdsByCategory[c.value] ? " ✓" : ""}
@@ -520,6 +548,21 @@ export default function CreatePostPage() {
                 />
               )}
             </>
+          )}
+
+          {/* 反対側の見本への切り替え。一覧の末尾に置いて、普段は視界に入らないようにする。 */}
+          {hasOtherWardrobeItems && primaryWardrobe && (
+            <div className="mt-6 flex justify-center border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={() => setShowOtherWardrobe((v) => !v)}
+                className="tappable text-xs font-bold text-accent"
+              >
+                {showOtherWardrobe
+                  ? `${WARDROBE_LABELS[primaryWardrobe]}の服だけに戻す`
+                  : `${WARDROBE_LABELS[otherWardrobe(primaryWardrobe)]}の服も見る`}
+              </button>
+            </div>
           )}
         </div>
 

@@ -25,6 +25,7 @@ import {
   type ChatMessage,
   type ChatThread,
   type ClosetCategory,
+  type Wardrobe,
   type ClosetItem,
   type FacePattern,
   type Follow,
@@ -155,6 +156,7 @@ export type ProfileEditableFields = Pick<
   | "recommendMinuteOfDay"
   | "avatarUrl"
   | "favoritePostIds"
+  | "primaryWardrobe"
 >;
 
 export async function updateUserProfile(uid: string, patch: Partial<ProfileEditableFields>): Promise<void> {
@@ -375,7 +377,7 @@ export async function deleteClosetItem(itemId: string): Promise<void> {
 
 export async function addSeedClosetItems(
   ownerUid: string,
-  seedItems: { category: ClosetCategory; label: string; imageUrl: string }[]
+  seedItems: { category: ClosetCategory; label: string; imageUrl: string; wardrobe?: Wardrobe }[]
 ): Promise<void> {
   const database = requireDb();
   await Promise.all(
@@ -397,6 +399,7 @@ export async function addSeedClosetItems(
         memo: "",
         wearCount: 0,
         lastWornAt: null,
+        wardrobe: seed.wardrobe ?? null,
       };
       return setDoc(doc(database, "closetItems", id), item);
     })

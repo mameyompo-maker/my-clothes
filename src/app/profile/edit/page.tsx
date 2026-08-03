@@ -9,9 +9,11 @@ import {
   BODY_TYPES,
   PERSONAL_COLORS,
   STYLE_GENRES,
+  WARDROBE_LABELS,
   type BodyType,
   type PersonalColor,
   type StyleGenre,
+  type Wardrobe,
 } from "@/types/models";
 import { ActionBar, Avatar, Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
 import { IconCamera, IconChevronLeft } from "@/components/icons";
@@ -25,6 +27,8 @@ export default function EditProfilePage() {
   const [bio, setBio] = useState(profile?.bio ?? "");
   const [height, setHeight] = useState(profile?.height ? String(profile.height) : "");
   const [bodyType, setBodyType] = useState<BodyType>(profile?.bodyType ?? "unknown");
+  // 主に使う服。2択を作るとき、既定ではこちらの見本だけを出す。
+  const [primaryWardrobe, setPrimaryWardrobe] = useState<Wardrobe>(profile?.primaryWardrobe ?? "women");
   const [personalColor, setPersonalColor] = useState<PersonalColor>(profile?.personalColor ?? "unknown");
   const [sizeTops, setSizeTops] = useState(profile?.sizeTops ?? "");
   const [sizeBottoms, setSizeBottoms] = useState(profile?.sizeBottoms ?? "");
@@ -80,6 +84,7 @@ export default function EditProfilePage() {
         sizeBottoms: sizeBottoms.trim(),
         sizeShoes: sizeShoes.trim(),
         favoriteGenres,
+        primaryWardrobe,
         recommendMinuteOfDay: Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null,
       });
       await refreshProfile();
@@ -167,6 +172,24 @@ export default function EditProfilePage() {
             placeholder="大学生 / 韓国系とカジュアルが好き"
             className={`${inputClass} resize-none`}
           />
+        </Field>
+
+        <Field
+          label="主に使う服"
+          hint="2択を作るときは、まずこちらの見本だけを出します。反対側もその場で表示できます。自分で登録した服はいつでも出ます。"
+        >
+          <div className="flex flex-wrap gap-2">
+            {(["women", "men"] as Wardrobe[]).map((w) => (
+              <Chip
+                key={w}
+                size="sm"
+                selected={primaryWardrobe === w}
+                onClick={() => setPrimaryWardrobe(w)}
+              >
+                {WARDROBE_LABELS[w]}
+              </Chip>
+            ))}
+          </div>
         </Field>
 
         <Field label="身長(cm)">

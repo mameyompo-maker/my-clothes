@@ -3,7 +3,12 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { addSeedClosetItems, listClosetItems, redeemInviteCode } from "@/lib/firestore";
+import {
+  addSeedClosetItems,
+  listClosetItems,
+  redeemInviteCode,
+  updateUserProfile,
+} from "@/lib/firestore";
 import { seedItemsFor, WARDROBE_STYLES, type WardrobeStyle } from "@/data/seedClosetItems";
 
 export default function OnboardingPage() {
@@ -58,6 +63,9 @@ function OnboardingContent() {
     const existing = await listClosetItems(uid);
     if (existing.length === 0) {
       await addSeedClosetItems(uid, seedItemsFor(style));
+      // 「主に使う服」の初期値。両方を入れた人は、ひとまずウィメンズを主にしておく
+      // (あとから設定画面で変えられる)。
+      await updateUserProfile(uid, { primaryWardrobe: style === "men" ? "men" : "women" });
     }
   }
 

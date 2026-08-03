@@ -134,6 +134,11 @@ export interface UserProfile {
   /** プロフィール上部に大きく出すお気に入りコーデ(StylePost の id、最大3件)。 */
   favoritePostIds?: string[];
   /**
+   * 主に使う服。2択を作るとき、既定ではこちらの見本だけを出す。
+   * 未設定なら見本の出し分けをしない(全部出す)。
+   */
+  primaryWardrobe?: Wardrobe;
+  /**
    * 課金プラン。**クライアントからは書き換えられない**(firestore.rules で 'plan' の
    * 変更を禁止している)。決済確認後に Admin SDK 側から書き込む前提。
    * 自己申告で有料機能が開けてしまわないようにするため。
@@ -175,6 +180,38 @@ export interface ClosetItem {
   /** 着用回数。よく着る服を上に出すため。 */
   wearCount?: number;
   lastWornAt?: number | null;
+  /**
+   * 見本の服がメンズ・ウィメンズどちらの一式に属するか。
+   * 自分で登録した服には付かない(＝ null)。付いていない服は常に表示する。
+   */
+  wardrobe?: Wardrobe | null;
+}
+
+/** メンズかウィメンズか。「主に使う服」の設定と、見本の服の出し分けに使う。 */
+export type Wardrobe = "men" | "women";
+
+export const WARDROBE_LABELS: Record<Wardrobe, string> = {
+  women: "ウィメンズ",
+  men: "メンズ",
+};
+
+/** 反対側。「メンズの服も見る」の切り替えに使う。 */
+export function otherWardrobe(w: Wardrobe): Wardrobe {
+  return w === "men" ? "women" : "men";
+}
+
+/**
+ * この服がどちらの一式のものか。
+ *
+ * 新しく入れた見本には `wardrobe` が入っているが、それ以前に入った見本には無い。
+ * 画像の置き場所(`/seed/men/` か `/seed/women/`)から補えるので、
+ * 移行作業をせずに済むようフォールバックしている。
+ */
+export function wardrobeOfItem(item: ClosetItem): Wardrobe | null {
+  if (item.wardrobe) return item.wardrobe;
+  if (item.imageUrl.startsWith("/seed/men/")) return "men";
+  if (item.imageUrl.startsWith("/seed/women/")) return "women";
+  return null;
 }
 
 export interface FacePattern {

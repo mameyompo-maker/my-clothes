@@ -9,6 +9,7 @@ import {
   listClosetItems,
   replaceSeedClosetItems,
   updateClosetItem,
+  updateUserProfile,
 } from "@/lib/firestore";
 import { seedItemsFor, WARDROBE_STYLES, type WardrobeStyle } from "@/data/seedClosetItems";
 import {
@@ -252,6 +253,9 @@ function SeedClosetPicker({ uid, onDone }: { uid: string; onDone: () => Promise<
     setError(null);
     try {
       await replaceSeedClosetItems(uid, seedItemsFor(style));
+      // 入れ直したら「主に使う服」もそれに合わせる。両方入れた人はウィメンズを主に
+      // しておく(設定画面で変えられる)。
+      await updateUserProfile(uid, { primaryWardrobe: style === "men" ? "men" : "women" });
       await onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "入れ替えに失敗しました。");
