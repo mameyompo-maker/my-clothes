@@ -8,6 +8,7 @@ import { recommendHeadline } from "@/lib/recommend";
 import type { StylePost } from "@/types/models";
 import { StylePostCard } from "@/components/StylePostCard";
 import { WeatherBar } from "@/components/WeatherBar";
+import { SuggestedUsers } from "@/components/SuggestedUsers";
 import { EmptyState, IconButton, PrimaryButton, Skeleton, TopBar } from "@/components/ui";
 import { IconMessage, IconSearch, IconSparkles } from "@/components/icons";
 
@@ -70,6 +71,14 @@ export default function HomeFeedPage() {
             </div>
           </Link>
         </div>
+
+        {/* つながりが少ないうちは、投稿一覧より先におすすめを出す。
+            空のフィードを見せるより、まず誰かとつながってもらうほうが先。 */}
+        {(profile?.friendUids.length ?? 0) < 3 && (
+          <div className="px-4">
+            <SuggestedUsers />
+          </div>
+        )}
 
         {posts === null ? (
           <div className="space-y-6 px-4">

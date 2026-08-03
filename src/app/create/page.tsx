@@ -33,6 +33,7 @@ import {
   type ClosetItem,
   type FacePattern,
   type OutfitCandidate,
+  type PostVisibility,
   type UserProfile,
 } from "@/types/models";
 import { HangerRail } from "@/components/HangerRail";
@@ -100,6 +101,8 @@ export default function CreatePostPage() {
   const [mood, setMood] = useState("");
   const [note, setNote] = useState("");
   const [sharedWith, setSharedWith] = useState<Set<string>>(new Set());
+  // 2択の公開範囲。既定は友達だけ(いきなり全体公開されると驚くため)。
+  const [outfitVisibility, setOutfitVisibility] = useState<PostVisibility>("friends");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -269,7 +272,8 @@ export default function CreatePostPage() {
         note.trim(),
         candidates,
         Array.from(sharedWith),
-        buildMode
+        buildMode,
+        outfitVisibility
       );
 
       // AI合成は課金状況に左右されるので、失敗しても投稿は成立させる。
@@ -675,6 +679,26 @@ export default function CreatePostPage() {
             ))}
           </div>
         </div>
+
+        <Field
+          label="公開範囲"
+          hint="公開にすると、友達以外の人も見て投票できます。反応が集まりやすくなります。"
+        >
+          <div className="flex gap-2">
+            <Chip
+              selected={outfitVisibility === "friends"}
+              onClick={() => setOutfitVisibility("friends")}
+            >
+              友達だけ
+            </Chip>
+            <Chip
+              selected={outfitVisibility === "public"}
+              onClick={() => setOutfitVisibility("public")}
+            >
+              みんなに公開
+            </Chip>
+          </div>
+        </Field>
 
         <Field label="今日の気分・予定">
           <input

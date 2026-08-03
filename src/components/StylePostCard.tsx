@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { hasLiked, toggleLike } from "@/lib/firestore";
 import { buildOutboundUrl, SEASONS, STYLE_GENRES, type StylePost } from "@/types/models";
+import { saveImage, sharePost } from "@/lib/share";
 import { Avatar, timeAgo } from "./ui";
 import { IconComment, IconHeart, IconHeartFilled, IconTag } from "./icons";
 
@@ -17,6 +18,7 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [showTags, setShowTags] = useState(false);
   const [burst, setBurst] = useState(false);
+  const [shareNote, setShareNote] = useState("");
 
   useEffect(() => {
     if (!myUid) return;
@@ -129,7 +131,34 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
           <IconComment className="h-6 w-6" />
           <span className="text-sm font-semibold">{post.commentCount > 0 ? post.commentCount : ""}</span>
         </Link>
+
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            type="button"
+            onClick={async () => {
+              const r = await sharePost(post.id, post.caption || "このコーデ見て");
+              setShareNote(r === "copied" ? "リンクをコピーしました" : r === "failed" ? "共有できませんでした" : "");
+              setTimeout(() => setShareNote(""), 2000);
+            }}
+            className="tappable text-xs font-bold text-accent"
+          >
+            共有
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const r = await saveImage(post.imageUrl, `myclothes-${post.id}.jpg`);
+              setShareNote(r === "opened" ? "新しいタブで開きました。長押しで保存できます" : "保存しました");
+              setTimeout(() => setShareNote(""), 2500);
+            }}
+            className="tappable text-xs font-bold text-accent"
+          >
+            写真を保存
+          </button>
+        </div>
       </div>
+
+      {shareNote && <p className="px-4 pt-1.5 text-[11px] text-muted-foreground">{shareNote}</p>}
 
       {post.caption && (
         <p className="px-4 pt-2 text-sm leading-relaxed">

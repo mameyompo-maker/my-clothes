@@ -27,7 +27,10 @@ import {
   type Report,
   type ChatMessage,
   type ChatThread,
+  BODY_TYPES,
   normalizeHashtag,
+  PERSONAL_COLORS,
+  STYLE_GENRES,
   type ClosetCategory,
   type Wardrobe,
   type ClosetItem,
@@ -289,6 +292,71 @@ export async function reportContent(input: Omit<Report, "id" | "createdAt">): Pr
   await setDoc(doc(database, "reports", id), report);
 }
 
+
+/**
+ * はじめて入った人に出す「おすすめの人」。
+ *
+ * 誰ともつながっていない状態のフィードは空同然で、初日に離脱する最大の原因になる。
+ * ここで効かせているのは **このアプリにしかない推薦軸**——骨格タイプ・パーソナルカラー・
+ * 身長・好きなジャンルの近さ。「同じ骨格ウェーブの人の着こなし」は他のSNSでは作れない。
+ *
+ * 実装は素朴に「新しめのユーザーを最大200件読んで、その中で並べ替える」だけ。
+ * 利用者が増えたら、事前計算した推薦テーブルに置き換える前提の暫定版。
+ */
+export async function suggestUsersToFollow(
+  me: UserProfile,
+  excludeUids: string[] = [],
+  max = 8
+): Promise<{ profile: UserProfile; reason: string }[]> {
+  const database = requireDb();
+  const snap = await getDocs(query(collection(database, "users"), limit(200)));
+  const exclude = new Set([me.uid, ...me.friendUids, ...excludeUids]);
+
+  const scored = snap.docs
+    .map((d) => d.data() as UserProfile)
+    .filter((u) => u.uid && !exclude.has(u.uid))
+    .map((u) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      // 公式は最初の1画面に必ず出したい。中身のある投稿が並んでいる可能性が高いため。
+      if (u.official) {
+        score += 6;
+        reasons.push("公式アカウント");
+      }
+      if (me.bodyType && me.bodyType !== "unknown" && u.bodyType === me.bodyType) {
+        score += 5;
+        reasons.push(`骨格${BODY_TYPES.find((b) => b.value === u.bodyType)?.label ?? ""}が同じ`);
+      }
+      if (me.personalColor && me.personalColor !== "unknown" && u.personalColor === me.personalColor) {
+        score += 4;
+        reasons.push(PERSONAL_COLORS.find((c) => c.value === u.personalColor)?.label ?? "");
+      }
+      const sharedGenres = (u.favoriteGenres ?? []).filter((g) => (me.favoriteGenres ?? []).includes(g));
+      if (sharedGenres.length > 0) {
+        score += 2 * sharedGenres.length;
+        reasons.push(`${STYLE_GENRES.find((g) => g.value === sharedGenres[0])?.label}が好き`);
+      }
+      if (me.height && u.height && Math.abs(me.height - u.height) <= 3) {
+        score += 3;
+        reasons.push("身長が近い");
+      }
+      // 投稿がある人を優先。空のプロフィールに飛ばしても何も起きないため。
+      score += Math.min(u.postCount ?? 0, 5) * 0.6;
+
+      return {
+        profile: u,
+        score,
+        reason: reasons.slice(0, 2).join("・") || "新しく始めた人",
+      };
+    })
+    .filter((x) => x.score > 0 || (x.profile.postCount ?? 0) > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max);
+
+  return scored.map(({ profile, reason }) => ({ profile, reason }));
+}
+
 // ---------- Follows ----------
 
 export async function followUser(myUid: string, targetUid: string): Promise<void> {
@@ -542,7 +610,8 @@ export async function createOutfitPost(
   note: string,
   candidates: OutfitCandidate[],
   sharedWithUids: string[],
-  buildMode: OutfitPost["buildMode"]
+  buildMode: OutfitPost["buildMode"],
+  visibility: PostVisibility = "friends"
 ): Promise<OutfitPost> {
   const database = requireDb();
   const id = crypto.randomUUID();
@@ -559,6 +628,7 @@ export async function createOutfitPost(
     decidedCandidateIndex: null,
     buildMode: buildMode ?? "topDown",
     deletedAt: null,
+    visibility,
   };
   await setDoc(doc(database, "outfitPosts", id), post);
   return post;
@@ -596,6 +666,32 @@ export function watchFeedPosts(myUid: string, onChange: (posts: OutfitPost[]) =>
       .filter((p) => p.expiresAt > now && !p.deletedAt)
       .sort((a, b) => b.createdAt - a.createdAt);
     onChange(posts);
+  });
+}
+
+/**
+ * 公開されている2択。友達でなくても投票できる。
+ * 友達向けの `watchFeedPosts` とは別クエリで取り、画面側で重複を除いて混ぜる
+ * (Firestore は OR 条件を1クエリで書けないため)。
+ */
+export function watchPublicOutfitPosts(
+  myUid: string,
+  onChange: (posts: OutfitPost[]) => void
+): Unsubscribe {
+  const database = requireDb();
+  const q = query(
+    collection(database, "outfitPosts"),
+    where("visibility", "==", "public"),
+    limit(60)
+  );
+  return onSnapshot(q, (snap) => {
+    const now = Date.now();
+    onChange(
+      snap.docs
+        .map((d) => d.data() as OutfitPost)
+        .filter((p) => p.expiresAt > now && !p.deletedAt && p.ownerUid !== myUid)
+        .sort((a, b) => b.createdAt - a.createdAt)
+    );
   });
 }
 

@@ -104,8 +104,16 @@ service cloud.firestore {
 
     // outfitPosts(2択): 投稿者本人 or 共有された友達だけ読める。
     match /outfitPosts/{postId} {
+      // visibility は後から足したフィールドなので、古い投稿には存在しない。
+      // get() の既定値で「友達だけ」として扱う。
+      function isPublicOutfit() {
+        return resource.data.get('visibility', 'friends') == 'public';
+      }
+
       function canReadOutfit() {
-        return resource.data.ownerUid == me() || me() in resource.data.sharedWithUids;
+        return resource.data.ownerUid == me()
+          || me() in resource.data.sharedWithUids
+          || isPublicOutfit();
       }
 
       allow get: if isSignedIn() && (resource == null || canReadOutfit());
@@ -127,7 +135,9 @@ service cloud.firestore {
           && request.resource.data.voterUid == voterUid
           && request.resource.data.postId == postId
           && get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid != me()
-          && me() in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids;
+          // 公開されている2択は誰でも投票できる。非公開なら共有された友達だけ。
+          && (get(/databases/$(database)/documents/outfitPosts/$(postId)).data.get('visibility', 'friends') == 'public'
+              || me() in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids);
         allow delete: if false;
       }
     }

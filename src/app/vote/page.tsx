@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
-import { getFriendProfiles, listClosetItems, listFacePatterns, watchFeedPosts, watchMyPosts } from "@/lib/firestore";
+import {
+  getFriendProfiles,
+  listClosetItems,
+  listFacePatterns,
+  watchFeedPosts,
+  watchMyPosts,
+  watchPublicOutfitPosts,
+} from "@/lib/firestore";
 import type { ClosetItem, FacePattern, OutfitPost, UserProfile } from "@/types/models";
 import { OutfitCard } from "@/components/OutfitCard";
 import { Avatar, EmptyState, PrimaryButton, Skeleton, TopBar } from "@/components/ui";
@@ -18,7 +25,7 @@ function timeLeftLabel(expiresAt: number): string {
 }
 
 export default function VoteListPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, hiddenUids } = useAuth();
   const [myPosts, setMyPosts] = useState<OutfitPost[]>([]);
   const [friendPosts, setFriendPosts] = useState<OutfitPost[]>([]);
   const [ownerByUid, setOwnerByUid] = useState<Record<string, UserProfile>>({});
@@ -32,14 +39,35 @@ export default function VoteListPage() {
       setMyPosts(posts.filter((p) => p.expiresAt > Date.now()));
       setLoading(false);
     });
-    const unsubFeed = watchFeedPosts(user.uid, setFriendPosts);
+    // 友達向けと公開の2本を別々に購読して混ぜる。Firestore は OR 条件を
+    // 1クエリで書けないため。重複は id で潰す。
+    let fromFriends: OutfitPost[] = [];
+    let fromPublic: OutfitPost[] = [];
+    const merge = () => {
+      const seen = new Set<string>();
+      const merged = [...fromFriends, ...fromPublic].filter((p) => {
+        if (seen.has(p.id) || hiddenUids.has(p.ownerUid)) return false;
+        seen.add(p.id);
+        return true;
+      });
+      setFriendPosts(merged.sort((a, b) => b.createdAt - a.createdAt));
+    };
+    const unsubFeed = watchFeedPosts(user.uid, (list) => {
+      fromFriends = list;
+      merge();
+    });
+    const unsubPublic = watchPublicOutfitPosts(user.uid, (list) => {
+      fromPublic = list;
+      merge();
+    });
     listClosetItems(user.uid).then(setMyItems);
     listFacePatterns(user.uid).then(setMyFaces);
     return () => {
       unsubMine();
       unsubFeed();
+      unsubPublic();
     };
-  }, [user]);
+  }, [user, hiddenUids]);
 
   useEffect(() => {
     if (!profile) return;

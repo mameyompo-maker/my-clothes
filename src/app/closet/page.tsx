@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import {
+  addSeedClosetItems,
   deleteClosetItem,
   listClosetItems,
   replaceSeedClosetItems,
@@ -24,6 +25,7 @@ import {
   type StyleGenre,
 } from "@/types/models";
 import { HangerRail } from "@/components/HangerRail";
+import { downloadJson } from "@/lib/share";
 import {
   Avatar,
   BottomSheet,
@@ -64,6 +66,8 @@ export default function ClosetPage() {
   const [seedSheetOpen, setSeedSheetOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
+  const [ioNote, setIoNote] = useState("");
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // 「眠っている服」の件数は読み込み時に数える。描画のたびに Date.now() を読むと、
   // 再描画のたびに結果が変わりうる不安定な値になってしまうため。
@@ -117,6 +121,75 @@ export default function ClosetPage() {
     const list = await listClosetItems(user.uid);
     setItems(list);
     setDormantCount(countDormant(list));
+  }
+
+  /**
+   * クローゼットの書き出し。
+   *
+   * 写真そのものではなく URL を書き出す。画像を全部詰めると数十MBになり、
+   * 端末によっては生成に失敗するため。機種変更や、うっかり消したときの保険という位置づけ。
+   */
+  function handleExport() {
+    if (!items) return;
+    downloadJson(
+      {
+        format: "my-clothes.closet.v1",
+        exportedAt: new Date().toISOString(),
+        items: items.map((i) => ({
+          category: i.category,
+          label: i.label,
+          imageUrl: i.imageUrl,
+          brand: i.brand ?? "",
+          size: i.size ?? "",
+          color: i.color ?? "",
+          genres: i.genres ?? [],
+          seasons: i.seasons ?? [],
+          memo: i.memo ?? "",
+          hashtags: i.hashtags ?? [],
+          wardrobe: i.wardrobe ?? null,
+        })),
+      },
+      `my-clothes-closet-${new Date().toISOString().slice(0, 10)}.json`
+    );
+    setIoNote(`${items.length}着を書き出しました。`);
+    setTimeout(() => setIoNote(""), 3000);
+  }
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !user) return;
+    try {
+      const parsed = JSON.parse(await file.text()) as {
+        format?: string;
+        items?: {
+          category: ClosetCategory;
+          label: string;
+          imageUrl: string;
+          hashtags?: string[];
+          wardrobe?: "men" | "women" | null;
+        }[];
+      };
+      if (parsed.format !== "my-clothes.closet.v1" || !Array.isArray(parsed.items)) {
+        throw new Error("このファイルは読み込めません。");
+      }
+      // 既存は消さずに足すだけ。読み込みで手持ちが消えるのが一番困るため。
+      await addSeedClosetItems(
+        user.uid,
+        parsed.items.map((i) => ({
+          category: i.category,
+          label: i.label,
+          imageUrl: i.imageUrl,
+          hashtags: i.hashtags ?? [],
+          wardrobe: i.wardrobe ?? undefined,
+        }))
+      );
+      await reloadItems();
+      setIoNote(`${parsed.items.length}着を読み込みました。`);
+    } catch (err) {
+      setIoNote(err instanceof Error ? err.message : "読み込みに失敗しました。");
+    }
+    setTimeout(() => setIoNote(""), 4000);
   }
 
   async function handleSaveEdit(patch: Partial<ClosetItem>) {
@@ -238,7 +311,24 @@ export default function ClosetPage() {
 
         {/* 見本の服はいつでも入れ直せる。最初の一回きりにすると、
             消してしまった人やメンズ/レディースを選び直したい人が戻れなくなる。 */}
-        <div className="mb-6 flex justify-end">
+        <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={handleImport}
+          />
+          <button type="button" onClick={handleExport} className="tappable text-[11px] font-bold text-accent">
+            書き出す
+          </button>
+          <button
+            type="button"
+            onClick={() => importInputRef.current?.click()}
+            className="tappable text-[11px] font-bold text-accent"
+          >
+            読み込む
+          </button>
           <button
             type="button"
             onClick={() => setSeedSheetOpen(true)}
@@ -247,6 +337,8 @@ export default function ClosetPage() {
             見本の服を入れる
           </button>
         </div>
+
+        {ioNote && <p className="mb-4 text-[11px] text-muted-foreground">{ioNote}</p>}
 
         {items === null ? (
           <div className="grid grid-cols-3 gap-3">
