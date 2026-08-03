@@ -134,7 +134,7 @@ function PostSummaryCard({
   return (
     <Link
       href={`/vote/${post.id}`}
-      className="tappable block overflow-hidden rounded-none border border-border bg-surface shadow-[var(--shadow-card)]"
+      className="tappable block overflow-hidden rounded-3xl border border-border bg-surface shadow-[var(--shadow-card)]"
     >
       <div className="flex items-center gap-2.5 px-3.5 py-3">
         <Avatar src={owner?.avatarUrl} name={owner?.name ?? "友達"} size={34} ring={!isMine} />
@@ -155,7 +155,7 @@ function PostSummaryCard({
       </div>
 
       <div className="px-3.5 py-3">
-        <span className="text-sm font-bold text-foreground">{cta} →</span>
+        <span className="text-sm font-bold text-accent">{cta} →</span>
       </div>
     </Link>
   );

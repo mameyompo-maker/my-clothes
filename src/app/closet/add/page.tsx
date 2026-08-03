@@ -100,7 +100,7 @@ export default function AddClosetItemPage() {
 
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="tappable relative mb-5 flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-none border-2 border-dashed border-border bg-surface-muted text-muted-foreground"
+          className="tappable relative mb-5 flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-3xl border-2 border-dashed border-border bg-surface-muted text-muted-foreground"
         >
           {previewUrl ? (
             <Image src={previewUrl} alt="プレビュー" fill className="object-cover" unoptimized />

@@ -92,7 +92,7 @@ function UpgradeContent() {
 
       <div className="mx-auto max-w-lg px-4 pb-28 pt-6">
         {result === "success" && !premium && (
-          <div className="mb-5 rounded-none border border-border bg-surface p-4">
+          <div className="mb-5 rounded-2xl border border-border bg-surface p-4">
             <p className="text-sm font-bold">お手続きを確認しています</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               反映まで少し時間がかかることがあります。しばらくしてもこの表示のままなら、
@@ -103,9 +103,9 @@ function UpgradeContent() {
 
         {premium ? (
           <>
-            <div className="mb-6 rounded-none border border-border-strong bg-accent-soft p-6 text-center">
-              <IconSparkles className="mx-auto mb-2 h-8 w-8 text-foreground" />
-              <p className="text-base font-bold text-foreground">プレミアムをご利用中です</p>
+            <div className="mb-6 rounded-3xl border border-accent/40 bg-accent-soft p-6 text-center">
+              <IconSparkles className="mx-auto mb-2 h-8 w-8 text-accent" />
+              <p className="text-base font-bold text-accent">プレミアムをご利用中です</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 おまかせ提案がいつでも使えます。ありがとうございます。
               </p>
@@ -124,7 +124,7 @@ function UpgradeContent() {
               </p>
             </div>
 
-            <section className="mb-5 rounded-none border border-border bg-surface p-5">
+            <section className="mb-5 rounded-3xl border border-border bg-surface p-5">
               <h2 className="mb-3 text-sm font-bold">プレミアムでできること</h2>
               <ul className="space-y-2.5">
                 <Benefit>おまかせで2択を自動生成する</Benefit>
@@ -133,7 +133,7 @@ function UpgradeContent() {
               </ul>
             </section>
 
-            <section className="mb-6 rounded-none border border-border bg-surface p-5">
+            <section className="mb-6 rounded-3xl border border-border bg-surface p-5">
               <h2 className="mb-3 text-sm font-bold">無料のままできること</h2>
               <ul className="space-y-2.5">
                 <Benefit>2択を作って友達に選んでもらう(1日1回)</Benefit>
@@ -155,7 +155,7 @@ function UpgradeContent() {
                 </p>
               </>
             ) : (
-              <div className="rounded-none border border-dashed border-border p-5 text-center">
+              <div className="rounded-3xl border border-dashed border-border p-5 text-center">
                 <p className="mb-1 text-sm font-bold">現在お申し込みは受け付けていません</p>
                 <p className="text-xs leading-relaxed text-muted-foreground">
                   決済のしくみを準備中です。用意ができたらこの画面からお申し込みいただけるようになります。
@@ -166,7 +166,7 @@ function UpgradeContent() {
         )}
 
         {error && (
-          <p className="mt-4 rounded-none border border-danger/40 bg-danger/5 p-3 text-xs leading-relaxed text-danger">
+          <p className="mt-4 rounded-2xl border border-danger/40 bg-danger/5 p-3 text-xs leading-relaxed text-danger">
             {error}
           </p>
         )}
@@ -190,7 +190,7 @@ function UpgradeContent() {
 function Benefit({ children }: { children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-2 text-xs leading-relaxed">
-      <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-foreground" />
+      <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
       <span>{children}</span>
     </li>
   );

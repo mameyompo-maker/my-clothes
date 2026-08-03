@@ -28,11 +28,7 @@ export default function HomeFeedPage() {
   return (
     <>
       <TopBar
-        left={
-          <span className="display text-xl">
-            My<span className="ml-1 bg-accent px-1">Clothes</span>
-          </span>
-        }
+        left={<span className="gradient-text text-xl font-extrabold tracking-tight">My Clothes</span>}
         right={
           <>
             <Link href="/search" aria-label="さがす">
@@ -53,12 +49,12 @@ export default function HomeFeedPage() {
         <div className="px-4 pt-4">
           <Link
             href="/create"
-            className="tappable hard-edge mb-5 flex items-center gap-3 bg-accent p-4"
+            className="tappable mb-5 flex items-center gap-3 rounded-3xl border border-accent/30 bg-accent-soft p-4"
           >
-            <IconSparkles className="h-6 w-6 shrink-0 text-accent-foreground" />
+            <IconSparkles className="h-6 w-6 shrink-0 text-accent" />
             <div className="min-w-0 flex-1">
-              <p className="display-ja text-sm text-accent-foreground">{recommendHeadline(itemCount)}</p>
-              <p className="text-[11px] leading-relaxed text-accent-foreground/70">
+              <p className="text-sm font-bold text-accent">{recommendHeadline(itemCount)}</p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
                 {itemCount > 0
                   ? `クローゼットの${itemCount}着から2択を組みます`
                   : "服を登録すると、ここから提案が届きます"}

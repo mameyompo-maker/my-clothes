@@ -88,7 +88,7 @@ export default function ChatListPage() {
             title="まだ送れる相手がいません"
             description="招待コードで友達を追加するか、気になる人をフォローすると、ここからメッセージを送れます。"
             action={
-              <Link href="/search" className="text-sm font-bold text-foreground">
+              <Link href="/search" className="text-sm font-bold text-accent">
                 ユーザーをさがす →
               </Link>
             }
@@ -131,7 +131,7 @@ export default function ChatListPage() {
                   const other = peopleByUid[otherUid];
                   return (
                     <li key={t.id}>
-                      <Link href={`/chat/${t.id}`} className="tappable flex items-center gap-3 rounded-none px-2 py-2.5">
+                      <Link href={`/chat/${t.id}`} className="tappable flex items-center gap-3 rounded-2xl px-2 py-2.5">
                         <Avatar src={other?.avatarUrl} name={other?.name ?? "ユーザー"} size={50} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-bold">{other?.name ?? "ユーザー"}</p>

@@ -125,7 +125,7 @@ export default function VoteDetailPage() {
           </div>
         </div>
 
-        {post.mood && <p className="mb-2 rounded-none bg-surface-muted px-4 py-3 text-sm">{post.mood}</p>}
+        {post.mood && <p className="mb-2 rounded-2xl bg-surface-muted px-4 py-3 text-sm">{post.mood}</p>}
         {post.note && <p className="mb-4 text-xs text-muted-foreground">{post.note}</p>}
 
         <div className="mb-5 grid grid-cols-2 gap-3">
@@ -140,9 +140,9 @@ export default function VoteDetailPage() {
                 <button
                   onClick={() => handleVote(index)}
                   disabled={!canVote}
-                  className={`relative overflow-hidden rounded-none border-2 text-left transition-transform ${
+                  className={`relative overflow-hidden rounded-3xl border-2 text-left transition-transform ${
                     canVote ? "active:scale-[0.98]" : ""
-                  } ${isDecided ? "border-foreground" : isMyVote ? "border-foreground" : "border-border"}`}
+                  } ${isDecided ? "border-accent" : isMyVote ? "border-accent" : "border-border"}`}
                 >
                   <OutfitCard candidate={candidate} items={items} faces={faces} className="aspect-[3/4] rounded-none" />
 
@@ -164,7 +164,7 @@ export default function VoteDetailPage() {
                         {tally[index]}票{totalVotes > 0 ? ` ・ ${pct}%` : ""}
                       </p>
                     ) : (
-                      <p className="text-xs text-foreground">タップで投票</p>
+                      <p className="text-xs text-accent">タップで投票</p>
                     )}
                   </div>
 
@@ -183,7 +183,7 @@ export default function VoteDetailPage() {
                     disabled={busy || isDecided}
                     className={`tappable rounded-full border px-3 py-2 text-xs font-bold ${
                       isDecided
-                        ? "border-foreground bg-accent text-accent-foreground"
+                        ? "border-accent bg-accent text-accent-foreground"
                         : "border-border-strong bg-surface text-foreground"
                     }`}
                   >
@@ -196,7 +196,7 @@ export default function VoteDetailPage() {
         </div>
 
         {isOwner && decided !== null && (
-          <div className="rounded-none border border-border-strong bg-accent-soft p-4">
+          <div className="rounded-3xl border border-accent/40 bg-accent-soft p-4">
             <p className="mb-1 text-sm font-bold">着たコーデを記録しましょう</p>
             <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
               全身写真を撮って投稿すると、カレンダーに残って、みんなにも見てもらえます。

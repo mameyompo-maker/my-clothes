@@ -160,7 +160,7 @@ function NewStylePostContent() {
             <div
               ref={imageRef}
               onClick={handleImageTap}
-              className="relative w-full overflow-hidden rounded-none bg-surface-muted"
+              className="relative w-full overflow-hidden rounded-3xl bg-surface-muted"
               style={{ aspectRatio: "3 / 4" }}
             >
               <Image src={previewUrl} alt="投稿する写真" fill className="object-cover" unoptimized />
@@ -199,7 +199,7 @@ function NewStylePostContent() {
             </p>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="tappable mt-1 text-xs font-semibold text-foreground"
+              className="tappable mt-1 text-xs font-semibold text-accent"
             >
               写真を選び直す
             </button>
@@ -207,7 +207,7 @@ function NewStylePostContent() {
         ) : (
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="tappable mb-5 flex w-full flex-col items-center justify-center gap-2 rounded-none border-2 border-dashed border-border bg-surface-muted py-20 text-muted-foreground"
+            className="tappable mb-5 flex w-full flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-border bg-surface-muted py-20 text-muted-foreground"
           >
             <IconCamera className="h-10 w-10" />
             <span className="text-sm font-semibold">全身写真を撮る / 選ぶ</span>
@@ -287,7 +287,7 @@ function NewStylePostContent() {
           <div className="grid grid-cols-3 gap-3 pb-6">
             {closetItems.map((item) => (
               <button key={item.id} onClick={() => addTag(item)} className="tappable text-left">
-                <div className="relative mb-1 w-full overflow-hidden rounded-none bg-surface-muted" style={{ aspectRatio: "3 / 4" }}>
+                <div className="relative mb-1 w-full overflow-hidden rounded-xl bg-surface-muted" style={{ aspectRatio: "3 / 4" }}>
                   <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
                 </div>
                 <span className="block truncate text-[11px]">{item.label}</span>

@@ -47,7 +47,7 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
   const seasonLabel = SEASONS.find((s) => s.value === post.season);
 
   return (
-    <article className="border-b-[1.5px] border-border-strong pb-4">
+    <article className="border-b border-border pb-4">
       <div className="flex items-center gap-2.5 px-4 py-3">
         <Link href={`/u/${post.ownerUid}`}>
           <Avatar src={post.ownerAvatarUrl} name={post.ownerName} size={34} ring />
@@ -96,7 +96,7 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
       <div className="flex items-center gap-4 px-4 pt-3">
         <button onClick={onToggleLike} className="tappable flex items-center gap-1.5" aria-label="いいね">
           {liked ? (
-            <IconHeartFilled className="h-6 w-6 text-danger" />
+            <IconHeartFilled className="h-6 w-6 text-accent" />
           ) : (
             <IconHeart className="h-6 w-6" />
           )}

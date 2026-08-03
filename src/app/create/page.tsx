@@ -286,7 +286,7 @@ export default function CreatePostPage() {
                   setBuildMode(m.value);
                   setStep("build");
                 }}
-                className="tappable w-full rounded-none border border-border bg-surface p-5 text-left shadow-[var(--shadow-card)]"
+                className="tappable w-full rounded-3xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-card)]"
               >
                 <div className="mb-1 flex items-center gap-2">
                   <span className="text-base font-bold">{m.label}</span>
@@ -303,11 +303,11 @@ export default function CreatePostPage() {
                   applySuggestion(1);
                   setStep("finish");
                 }}
-                className="tappable flex w-full items-center gap-3 rounded-none border border-border-strong bg-accent-soft p-5 text-left"
+                className="tappable flex w-full items-center gap-3 rounded-3xl border border-accent/40 bg-accent-soft p-5 text-left"
               >
-                <IconSparkles className="h-6 w-6 shrink-0 text-foreground" />
+                <IconSparkles className="h-6 w-6 shrink-0 text-accent" />
                 <div>
-                  <span className="block text-base font-bold text-foreground">おまかせで2択を作る</span>
+                  <span className="block text-base font-bold text-accent">おまかせで2択を作る</span>
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     季節と好みと着ていない期間から、2パターン自動で組みます
                   </p>
@@ -316,7 +316,7 @@ export default function CreatePostPage() {
             ) : (
               <Link
                 href="/upgrade"
-                className="tappable flex w-full items-center gap-3 rounded-none border border-border bg-surface p-5 text-left"
+                className="tappable flex w-full items-center gap-3 rounded-3xl border border-border bg-surface p-5 text-left"
               >
                 <IconSparkles className="h-6 w-6 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
@@ -353,7 +353,7 @@ export default function CreatePostPage() {
             <button
               onClick={() => setStep("finish")}
               disabled={!bothReady}
-              className="text-sm font-bold text-foreground disabled:text-muted-foreground/50"
+              className="text-sm font-bold text-accent disabled:text-muted-foreground/50"
             >
               次へ
             </button>
@@ -369,8 +369,8 @@ export default function CreatePostPage() {
                   setSlot(s);
                   setCategoryOverride(null);
                 }}
-                className={`tappable flex-1 rounded-none border px-3 py-2.5 text-sm font-bold transition-colors ${
-                  slot === s ? "border-foreground bg-accent text-accent-foreground" : "border-border bg-surface text-muted-foreground"
+                className={`tappable flex-1 rounded-2xl border px-3 py-2.5 text-sm font-bold transition-colors ${
+                  slot === s ? "border-accent bg-accent text-accent-foreground" : "border-border bg-surface text-muted-foreground"
                 }`}
               >
                 候補{s === 0 ? "A" : "B"} {slotReady(s) ? "✓" : ""}
@@ -378,13 +378,13 @@ export default function CreatePostPage() {
             ))}
           </div>
 
-          <div className="mb-4 min-h-[54px] rounded-none border border-border bg-surface p-3">
+          <div className="mb-4 min-h-[54px] rounded-2xl border border-border bg-surface p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[11px] font-semibold text-muted-foreground">選んだアイテム</span>
               {premium ? (
                 <button
                   onClick={() => applySuggestion(slot)}
-                  className="flex items-center gap-1 text-[11px] font-bold text-foreground"
+                  className="flex items-center gap-1 text-[11px] font-bold text-accent"
                 >
                   <IconSparkles className="h-3.5 w-3.5" /> おまかせ
                 </button>
@@ -484,14 +484,14 @@ export default function CreatePostPage() {
       <div className="mx-auto max-w-lg px-4 pb-32 pt-4">
         <div className="mb-6 grid grid-cols-2 gap-3">
           {([0, 1] as Slot[]).map((s) => (
-            <div key={s} className="rounded-none border border-border bg-surface p-2">
+            <div key={s} className="rounded-2xl border border-border bg-surface p-2">
               <p className="mb-1.5 text-center text-xs font-bold">候補{s === 0 ? "A" : "B"}</p>
               <div className="grid grid-cols-2 gap-1">
                 {selectedItems(s)
                   .slice(0, 4)
                   .map((item) => (
-                    <div key={item.id} className="relative aspect-square overflow-hidden rounded-none bg-background">
-                      <Image src={item.imageUrl} alt={item.label} fill className="object-contain p-1" unoptimized />
+                    <div key={item.id} className="relative aspect-square overflow-hidden rounded-lg bg-surface-muted">
+                      <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
                     </div>
                   ))}
               </div>
@@ -520,8 +520,8 @@ export default function CreatePostPage() {
           <div className="grid grid-cols-4 gap-2">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className={`tappable relative flex aspect-square flex-col items-center justify-center gap-1 overflow-hidden rounded-none border-2 border-dashed ${
-                draft.liveCaptureFile ? "border-foreground text-foreground" : "border-border text-muted-foreground"
+              className={`tappable relative flex aspect-square flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl border-2 border-dashed ${
+                draft.liveCaptureFile ? "border-accent text-accent" : "border-border text-muted-foreground"
               }`}
             >
               {draft.liveCapturePreviewUrl ? (
@@ -537,7 +537,7 @@ export default function CreatePostPage() {
               <button
                 key={f.id}
                 onClick={() => updateDraft(slot, { facePatternId: f.id, liveCaptureFile: null, liveCapturePreviewUrl: null })}
-                className={`tappable relative aspect-square overflow-hidden rounded-none ring-2 ${
+                className={`tappable relative aspect-square overflow-hidden rounded-2xl ring-2 ${
                   draft.facePatternId === f.id ? "ring-accent" : "ring-transparent"
                 }`}
               >
@@ -567,7 +567,7 @@ export default function CreatePostPage() {
 
         <h2 className="mb-2 text-sm font-bold">誰に選んでもらう?</h2>
         {friends.length === 0 ? (
-          <div className="mb-4 rounded-none border border-border bg-surface p-4">
+          <div className="mb-4 rounded-2xl border border-border bg-surface p-4">
             <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
               まだ友達がいません。友達がいなくても投稿は保存でき、あとから自分で選べます。
             </p>
@@ -580,7 +580,7 @@ export default function CreatePostPage() {
             {friends.map((f) => (
               <label
                 key={f.uid}
-                className="flex items-center gap-3 rounded-none border border-border bg-surface px-3 py-2.5"
+                className="flex items-center gap-3 rounded-2xl border border-border bg-surface px-3 py-2.5"
               >
                 <input
                   type="checkbox"

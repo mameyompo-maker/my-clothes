@@ -1,29 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Jost, Playfair_Display } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import { AppShell } from "@/components/AppShell";
 
-/**
- * 参照デザイン(fashion_cheeful.pptx)は Futura / Aileron / Perandory Condensed で
- * 組まれているが、いずれもWebフォントとして配布できない。雰囲気の近いものに置き換える。
- * 日本語はWebフォントを読み込むと数MBになるので、端末のゴシックに任せている。
- */
-const display = Jost({
-  variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-});
-
-const body = Inter({
-  variable: "--font-body",
+const geistSans = Geist({
+  variable: "--font-geist-sans",
   subsets: ["latin"],
 });
 
-const editorial = Playfair_Display({
-  variable: "--font-editorial",
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
   subsets: ["latin"],
-  weight: ["500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -42,7 +30,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#d9d9d9",
+  themeColor: "#ff3b6b",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -56,7 +44,7 @@ export default function RootLayout({
   return (
     <html
       lang="ja"
-      className={`${body.variable} ${display.variable} ${editorial.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <AuthProvider>
