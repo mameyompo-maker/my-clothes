@@ -1,3 +1,4 @@
+import { tempBandOf } from "./weather";
 import {
   CATEGORY_ORDER,
   seasonOfMonth,
@@ -28,13 +29,35 @@ export interface OutfitSuggestion {
   reasons: string[];
 }
 
-/** 1着ごとのスコア。季節が合う・好きなジャンル・しばらく着ていない、を加点する。 */
+/**
+ * 1着ごとのスコア。季節が合う・好きなジャンル・しばらく着ていない、を加点する。
+ * `maxTemp` を渡すと、その日の気温に合うかどうかも見る。
+ */
 export function scoreItem(
   item: ClosetItem,
-  opts: { season: Season; favoriteGenres: StyleGenre[]; now: number }
+  opts: { season: Season; favoriteGenres: StyleGenre[]; now: number; maxTemp?: number | null }
 ): ScoredItem {
   const reasons: string[] = [];
   let score = 1;
+
+  // 気温に対する当たり判定。季節タグより実際の気温を優先したい日
+  // (11月なのに25℃、など)に効かせるための補正。
+  if (typeof opts.maxTemp === "number") {
+    const band = tempBandOf(opts.maxTemp);
+    if (item.category === "outerwear") {
+      if (band === "cold") {
+        score += 3;
+        reasons.push("今日の寒さに合う");
+      } else if (band === "cool") {
+        score += 1.5;
+        reasons.push("羽織りがあると安心");
+      } else if (band === "hot") {
+        score -= 4; // 真夏にアウターは出さない
+      }
+    }
+    if (band === "hot" && (item.seasons ?? []).includes("winter")) score -= 3;
+    if (band === "cold" && (item.seasons ?? []).includes("summer")) score -= 3;
+  }
 
   const seasons = item.seasons ?? [];
   if (seasons.includes(opts.season)) {
@@ -78,7 +101,7 @@ export function scoreItem(
 function pickBest(
   items: ClosetItem[],
   category: ClosetCategory,
-  opts: { season: Season; favoriteGenres: StyleGenre[]; now: number },
+  opts: { season: Season; favoriteGenres: StyleGenre[]; now: number; maxTemp?: number | null },
   exclude: Set<string>
 ): ScoredItem | null {
   const pool = items.filter((i) => i.category === category && !exclude.has(i.id));
@@ -93,13 +116,19 @@ function pickBest(
  */
 export function suggestOutfit(
   items: ClosetItem[],
-  opts: { favoriteGenres: StyleGenre[]; heroItem?: ClosetItem | null; now?: number }
+  opts: {
+    favoriteGenres: StyleGenre[];
+    heroItem?: ClosetItem | null;
+    now?: number;
+    /** その日の最高気温。渡すと気温に合う服を優先する。 */
+    maxTemp?: number | null;
+  }
 ): OutfitSuggestion | null {
   if (items.length === 0) return null;
 
   const now = opts.now ?? Date.now();
   const season = seasonOfMonth(new Date(now).getMonth() + 1);
-  const scoring = { season, favoriteGenres: opts.favoriteGenres, now };
+  const scoring = { season, favoriteGenres: opts.favoriteGenres, now, maxTemp: opts.maxTemp ?? null };
 
   const chosen: ClosetItem[] = [];
   const reasons = new Set<string>();

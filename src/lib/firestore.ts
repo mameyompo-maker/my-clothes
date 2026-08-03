@@ -622,6 +622,8 @@ export interface StylePostInput {
   season: Season | null;
   visibility: PostVisibility;
   outfitPostId: string | null;
+  /** 市区町村レベルの地名。任意。 */
+  placeName?: string | null;
 }
 
 export async function createStylePost(
@@ -648,10 +650,30 @@ export async function createStylePost(
     commentCount: 0,
     createdAt: Date.now(),
     outfitPostId: input.outfitPostId,
+    placeName: input.placeName ?? null,
   };
   await setDoc(doc(database, "stylePosts", id), post);
   await updateDoc(doc(database, "users", owner.uid), { postCount: increment(1) });
   return post;
+}
+
+/**
+ * 投稿をあとから直す。直せるのは firestore.rules が許している項目だけ
+ * (caption / itemTags / genres / season / visibility / placeName)。
+ * 写真そのものは差し替えられない——差し替えを許すと、いいねが付いた後に
+ * 中身をすり替えられてしまうため。
+ */
+export type StylePostEditableFields = Pick<
+  StylePost,
+  "caption" | "itemTags" | "genres" | "season" | "visibility" | "placeName"
+>;
+
+export async function updateStylePost(
+  postId: string,
+  patch: Partial<StylePostEditableFields>
+): Promise<void> {
+  const database = requireDb();
+  await updateDoc(doc(database, "stylePosts", postId), patch);
 }
 
 export async function getStylePost(postId: string): Promise<StylePost | null> {

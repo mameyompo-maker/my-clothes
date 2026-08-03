@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { hasLiked, toggleLike } from "@/lib/firestore";
-import { SEASONS, STYLE_GENRES, type StylePost } from "@/types/models";
+import { buildOutboundUrl, SEASONS, STYLE_GENRES, type StylePost } from "@/types/models";
 import { Avatar, timeAgo } from "./ui";
 import { IconComment, IconHeart, IconHeartFilled, IconTag } from "./icons";
 
@@ -55,6 +55,9 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
         <Link href={`/u/${post.ownerUid}`} className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold">{post.ownerName}</p>
           {post.ownerHandle && <p className="truncate text-[11px] text-muted-foreground">@{post.ownerHandle}</p>}
+          {post.placeName && (
+            <p className="truncate text-[11px] text-muted-foreground">📍 {post.placeName}</p>
+          )}
         </Link>
         <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(post.createdAt)}</span>
       </div>
@@ -75,16 +78,36 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
         )}
 
         {showTags &&
-          post.itemTags.map((tag, i) => (
-            <span
-              key={i}
-              className="animate-pop-in absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-black/75 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur"
-              style={{ left: `${tag.x * 100}%`, top: `${tag.y * 100}%` }}
-            >
-              {tag.brand ? `${tag.brand} / ` : ""}
-              {tag.label}
-            </span>
-          ))}
+          post.itemTags.map((tag, i) => {
+            const label = `${tag.brand ? `${tag.brand} / ` : ""}${tag.label}`;
+            const href = tag.url ? buildOutboundUrl(tag.url) : null;
+            const base =
+              "animate-pop-in absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-black/75 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur";
+            const style = { left: `${tag.x * 100}%`, top: `${tag.y * 100}%` };
+
+            // リンク付きのタグは、外部サイトへ飛ぶことが分かるようにしてから開く。
+            // 写真タップでタグ表示が切り替わるので、ここでは伝播を止める。
+            if (href) {
+              return (
+                <a
+                  key={i}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow sponsored"
+                  onClick={(e) => e.stopPropagation()}
+                  className={`${base} underline decoration-white/50 underline-offset-2`}
+                  style={style}
+                >
+                  {label} ↗
+                </a>
+              );
+            }
+            return (
+              <span key={i} className={base} style={style}>
+                {label}
+              </span>
+            );
+          })}
 
         {burst && (
           <span className="animate-heart pointer-events-none absolute inset-0 flex items-center justify-center">

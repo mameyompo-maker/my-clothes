@@ -38,6 +38,21 @@ import {
 } from "@/components/ui";
 import { IconCloset, IconPlus, IconTrash } from "@/components/icons";
 
+/** 並び替えの軸。「眠っている順」はタンスの肥やしを掘り起こすためのもの。 */
+type SortKey = "recent" | "worn" | "dormant";
+
+const SORT_LABELS: { value: SortKey; label: string }[] = [
+  { value: "recent", label: "追加した順" },
+  { value: "worn", label: "よく着る順" },
+  { value: "dormant", label: "眠っている順" },
+];
+
+/** 1ヶ月以上着ていない(または一度も着ていない)服の数。掘り起こしの入口にする。 */
+function countDormant(items: ClosetItem[]): number {
+  const monthAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  return items.filter((i) => (i.lastWornAt ?? 0) < monthAgo).length;
+}
+
 export default function ClosetPage() {
   const { user, profile } = useAuth();
   const [items, setItems] = useState<ClosetItem[] | null>(null);
@@ -46,22 +61,49 @@ export default function ClosetPage() {
   const [season, setSeason] = useState<Season | null>(null);
   const [editing, setEditing] = useState<ClosetItem | null>(null);
   const [seedSheetOpen, setSeedSheetOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortKey>("recent");
+
+  // 「眠っている服」の件数は読み込み時に数える。描画のたびに Date.now() を読むと、
+  // 再描画のたびに結果が変わりうる不安定な値になってしまうため。
+  const [dormantCount, setDormantCount] = useState(0);
 
   useEffect(() => {
     if (!user) return;
-    listClosetItems(user.uid).then(setItems);
+    listClosetItems(user.uid).then((list) => {
+      setItems(list);
+      setDormantCount(countDormant(list));
+    });
   }, [user]);
 
   const filtered = useMemo(() => {
     if (!items) return [];
-    return items.filter((i) => {
+    const q = search.trim().toLowerCase();
+    const list = items.filter((i) => {
       if (category !== "all" && i.category !== category) return false;
       if (genre && !(i.genres ?? []).includes(genre)) return false;
       // 季節タグが空のアイテムは通年扱いで常に残す。登録直後に消えると混乱するため。
       if (season && (i.seasons ?? []).length > 0 && !(i.seasons ?? []).includes(season)) return false;
+      if (q) {
+        // 服は名前だけで探せないことが多い(「あの黒いやつ」)。ブランド・色・メモも見る。
+        const haystack = [i.label, i.brand, i.color, i.memo].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
-  }, [items, category, genre, season]);
+
+    const sorted = [...list];
+    if (sort === "worn") {
+      sorted.sort((a, b) => (b.wearCount ?? 0) - (a.wearCount ?? 0));
+    } else if (sort === "dormant") {
+      // 眠っている順。一度も着ていない服を先頭に出す(掘り起こしが目的なので)。
+      sorted.sort((a, b) => (a.lastWornAt ?? 0) - (b.lastWornAt ?? 0));
+    } else {
+      sorted.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    return sorted;
+  }, [items, category, genre, season, search, sort]);
+
 
   const thisSeason = seasonOfMonth(new Date().getMonth() + 1);
 
@@ -71,7 +113,9 @@ export default function ClosetPage() {
 
   async function reloadItems() {
     if (!user) return;
-    setItems(await listClosetItems(user.uid));
+    const list = await listClosetItems(user.uid);
+    setItems(list);
+    setDormantCount(countDormant(list));
   }
 
   async function handleSaveEdit(patch: Partial<ClosetItem>) {
@@ -118,6 +162,14 @@ export default function ClosetPage() {
           </div>
         )}
 
+        {/* 服が増えると絞り込みだけでは追いつかない。「あの黒いやつ」で引けるようにする。 */}
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="名前・ブランド・色で探す"
+          className={`${inputClass} mb-2.5`}
+        />
+
         <div className="no-scrollbar -mx-4 mb-2.5 flex gap-2 overflow-x-auto px-4">
           <Chip selected={category === "all"} onClick={() => setCategory("all")}>
             すべて{items ? ` (${items.length})` : ""}
@@ -159,6 +211,29 @@ export default function ClosetPage() {
             </Chip>
           ))}
         </div>
+
+        <div className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4">
+          {SORT_LABELS.map((s) => (
+            <Chip key={s.value} size="sm" selected={sort === s.value} onClick={() => setSort(s.value)}>
+              {s.label}
+            </Chip>
+          ))}
+        </div>
+
+        {/* 持っているのに忘れている服を減らすのが、このアプリの裏の狙い。
+            数を出して、そこから一覧に入れるようにしている。 */}
+        {dormantCount > 0 && sort !== "dormant" && (
+          <button
+            type="button"
+            onClick={() => setSort("dormant")}
+            className="tappable mb-3 w-full rounded-2xl border border-border bg-surface px-4 py-2.5 text-left"
+          >
+            <span className="text-xs font-bold">1ヶ月以上着ていない服が{dormantCount}着あります</span>
+            <span className="mt-0.5 block text-[11px] text-muted-foreground">
+              タップすると眠っている順に並べ替えます
+            </span>
+          </button>
+        )}
 
         {/* 見本の服はいつでも入れ直せる。最初の一回きりにすると、
             消してしまった人やメンズ/レディースを選び直したい人が戻れなくなる。 */}

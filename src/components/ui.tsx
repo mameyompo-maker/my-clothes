@@ -51,6 +51,31 @@ export function Avatar({
   );
 }
 
+/**
+ * 公式・認証済みの印。
+ *
+ * `UserProfile.official` は firestore.rules で本人にも書けないようにしてある。
+ * 自己申告で付けられるバッジには意味が無く、あると却って信用を落とすため。
+ */
+export function VerifiedBadge({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      className="shrink-0 text-accent"
+      aria-label="認証済みアカウント"
+      role="img"
+    >
+      <path
+        fill="currentColor"
+        d="M12 1.5l2.6 2.1 3.3-.3.9 3.2 2.9 1.7-1.4 3 1.4 3-2.9 1.7-.9 3.2-3.3-.3L12 22.5l-2.6-2.1-3.3.3-.9-3.2L2.3 15.8l1.4-3-1.4-3 2.9-1.7.9-3.2 3.3.3L12 1.5z"
+      />
+      <path fill="var(--surface)" d="M10.8 15.4l-3-3 1.3-1.3 1.7 1.7 4.2-4.2 1.3 1.3-5.5 5.5z" />
+    </svg>
+  );
+}
+
 export function Chip({
   children,
   selected = false,

@@ -25,12 +25,13 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && me() == uid
-        && !request.resource.data.keys().hasAny(['plan']);
+        && !request.resource.data.keys().hasAny(['plan', 'official']);
 
-      // 自分のドキュメントでも 'plan' だけは触らせない。触れると有料機能を
-      // 自己申告で開けてしまうため、決済確認後に Admin SDK からのみ書き込む。
+      // 自分のドキュメントでも 'plan' と 'official' だけは触らせない。
+      // plan は自己申告で有料機能が開いてしまうため、決済確認後に Admin SDK が書く。
+      // official は認証バッジ。自分で付けられたら認証の意味が無くなるので運営だけが書く。
       allow update: if isSignedIn() && me() == uid
-        && !changedKeys().hasAny(['plan']);
+        && !changedKeys().hasAny(['plan', 'official']);
 
       allow update: if isSignedIn() && me() != uid
         && changedKeys().hasOnly(['friendUids'])
@@ -129,7 +130,7 @@ service cloud.firestore {
 
       // 本人による編集。
       allow update: if isSignedIn() && resource.data.ownerUid == me()
-        && changedKeys().hasOnly(['caption', 'itemTags', 'genres', 'season', 'visibility']);
+        && changedKeys().hasOnly(['caption', 'itemTags', 'genres', 'season', 'visibility', 'placeName']);
 
       // いいね/コメントのカウンタは他人も動かす。1ずつしか変えられないよう縛る。
       allow update: if isSignedIn() && canReadPost()

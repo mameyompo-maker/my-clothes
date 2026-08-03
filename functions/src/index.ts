@@ -47,6 +47,73 @@ interface OutfitPostDoc {
   candidates: OutfitCandidateDoc[];
 }
 
+/** 合成の指示を本人に寄せるために読むプロフィール項目。すべて任意。 */
+interface UserProfileDoc {
+  height?: number | null;
+  bodyType?: "straight" | "wave" | "natural" | "unknown";
+  personalColor?: string;
+  sizeTops?: string;
+  sizeBottoms?: string;
+  favoriteGenres?: string[];
+}
+
+/**
+ * 骨格タイプごとの、写真に落とすときの見え方の指示。
+ *
+ * 骨格診断は「似合う服」を選ぶための考え方だが、ここでやりたいのは**選定ではなく再現**。
+ * 本人が選んだ服はそのまま着せたうえで、シルエットの出方だけを本人の体型に寄せる。
+ * 診断結果に合わない服を勝手に差し替えたり、体型を補正して痩せさせたりはしない
+ * (自分の姿を確認するための機能なので、事実と違う姿を返すと役に立たない)。
+ */
+const BODY_TYPE_HINTS: Record<string, string> = {
+  straight:
+    "上半身に厚みがありメリハリのある体型です。トップスは体の線を拾いすぎず、すっきりと落ちるように見せてください。",
+  wave:
+    "上半身が薄く、下重心の華奢な体型です。トップスはやわらかく、ウエスト位置が高く見えるように配置してください。",
+  natural:
+    "骨格がしっかりしてフレーム感のある体型です。肩や関節の存在感を活かし、ゆったりしたシルエットで見せてください。",
+  unknown: "",
+};
+
+const PERSONAL_COLOR_HINTS: Record<string, string> = {
+  spring: "肌はイエローベースで明るく、blushのある血色感で描いてください。",
+  summer: "肌はブルーベースで柔らかく、青みのある涼しげな血色感で描いてください。",
+  autumn: "肌はイエローベースで深みがあり、落ち着いた血色感で描いてください。",
+  winter: "肌はブルーベースでくっきりとし、コントラストのある印象で描いてください。",
+};
+
+/**
+ * 本人の情報から、合成時の追加指示を組み立てる。
+ * 未設定の項目は黙って飛ばす。埋まっていない前提で書くこと。
+ */
+function buildPersonalHint(profile: UserProfileDoc | null): string {
+  if (!profile) return "";
+  const lines: string[] = [];
+
+  if (typeof profile.height === "number" && profile.height > 0) {
+    lines.push(`身長は約${profile.height}cmです。頭身のバランスをこれに合わせてください。`);
+  }
+
+  const bodyHint = profile.bodyType ? BODY_TYPE_HINTS[profile.bodyType] : "";
+  if (bodyHint) lines.push(bodyHint);
+
+  const colorHint = profile.personalColor ? PERSONAL_COLOR_HINTS[profile.personalColor] : "";
+  if (colorHint) lines.push(colorHint);
+
+  const sizes = [profile.sizeTops, profile.sizeBottoms].filter(Boolean);
+  if (sizes.length > 0) {
+    lines.push(`普段のサイズは ${sizes.join(" / ")} です。服の余り具合をこれに近づけてください。`);
+  }
+
+  if (lines.length === 0) return "";
+  return (
+    "\n\n【この人物について】\n" +
+    lines.join("\n") +
+    "\nただし、**写っている顔と服は絶対に変えないでください。**体型を細く補正したり、" +
+    "似合う別の服に差し替えたりせず、あくまで本人が選んだ服を本人が着た姿として描いてください。"
+  );
+}
+
 // ---------- composeOutfitImage ----------
 // クローゼット写真+顔写真を Gemini の画像編集モデルに渡し、1枚の合成画像を生成する。
 // (友達招待はCloud Functions不要のfirestore.rulesだけで完結するため、この関数のみが
@@ -88,7 +155,24 @@ export const composeOutfitImage = onCall<{ postId: string; candidateIndex: numbe
       }
       if (!faceImageUrl) throw new Error("顔写真が見つかりませんでした。");
 
-      const composedImageUrl = await composeWithGemini(itemImageUrls, faceImageUrl, uid, postId, candidateIndex);
+      // 本人のプロフィールを合成の指示に混ぜる。無くても合成は成立するので、
+      // 読めなかった場合は黙って諦める(合成そのものを失敗させない)。
+      let profile: UserProfileDoc | null = null;
+      try {
+        const userSnap = await db.collection("users").doc(uid).get();
+        if (userSnap.exists) profile = userSnap.data() as UserProfileDoc;
+      } catch {
+        profile = null;
+      }
+
+      const composedImageUrl = await composeWithGemini(
+        itemImageUrls,
+        faceImageUrl,
+        uid,
+        postId,
+        candidateIndex,
+        buildPersonalHint(profile)
+      );
       await patchCandidate(postRef, candidateIndex, { composedImageUrl, composeStatus: "ready" });
       return { composedImageUrl };
     } catch (err) {
@@ -125,7 +209,8 @@ async function composeWithGemini(
   faceImageUrl: string,
   ownerUid: string,
   postId: string,
-  candidateIndex: number
+  candidateIndex: number,
+  personalHint = ""
 ): Promise<string> {
   const images = await Promise.all([faceImageUrl, ...itemImageUrls].map(fetchAsBase64));
 
@@ -134,7 +219,8 @@ async function composeWithGemini(
       text:
         "1枚目は人物の顔写真です。この人物の顔・髪型・雰囲気を保ったまま、2枚目以降に写っている服・靴・" +
         "アクセサリーを実際に着用している様子を、自然な光でシンプルな背景の写真として1枚に合成してください。" +
-        "全身または上半身が分かる構図でお願いします。",
+        "全身または上半身が分かる構図でお願いします。" +
+        personalHint,
     },
     ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } })),
   ];

@@ -36,6 +36,8 @@ import {
   type UserProfile,
 } from "@/types/models";
 import { HangerRail } from "@/components/HangerRail";
+import { WeatherBar } from "@/components/WeatherBar";
+import { hasWeatherOptIn, loadTodayWeather, type TodayWeather } from "@/lib/weather";
 import {
   ActionBar,
   Avatar,
@@ -81,6 +83,8 @@ export default function CreatePostPage() {
   const [undoing, setUndoing] = useState(false);
   // 「主に使う服」の反対側も出すか。既定は出さない。
   const [showOtherWardrobe, setShowOtherWardrobe] = useState(false);
+  // その日の天気。提案の重みづけに使う。許可していなければ null のまま。
+  const [weather, setWeather] = useState<TodayWeather | null>(null);
 
   const premium = isPremium(profile);
   const primaryWardrobe = profile?.primaryWardrobe ?? null;
@@ -119,6 +123,15 @@ export default function CreatePostPage() {
       })
       .finally(() => setLoading(false));
   }, [user, profile]);
+
+  // 天気は許可済みのときだけ黙って読む。ここで許可を求めることはしない
+  // (求めるのは WeatherBar を本人が押したとき)。
+  useEffect(() => {
+    if (!hasWeatherOptIn()) return;
+    loadTodayWeather()
+      .then(setWeather)
+      .catch(() => setWeather(null));
+  }, []);
 
   /** 今日の2択を取り消して、もう一度作れる状態に戻す。 */
   async function handleUndoToday() {
@@ -182,8 +195,9 @@ export default function CreatePostPage() {
   }
 
   function applySuggestion(target: Slot, hero?: ClosetItem | null) {
-    // おまかせも「主に使う服」に従う。設定と違う側の服が勝手に出てくると意図に反するため。
+    // おまかせは「主に使う服」に従い、さらに今日の気温も見る。
     const suggestion = suggestOutfit(visibleItems, {
+      maxTemp: weather?.maxTemp ?? null,
       favoriteGenres: profile?.favoriteGenres ?? [],
       heroItem: hero ?? null,
     });
@@ -369,9 +383,14 @@ export default function CreatePostPage() {
         <TopBar title="コーデを作る" />
         <div className="mx-auto max-w-lg px-4 pb-28 pt-6">
           <h2 className="mb-1 text-xl font-bold tracking-tight">今日はどう決める?</h2>
-          <p className="mb-6 text-sm text-muted-foreground">
+          <p className="mb-4 text-sm text-muted-foreground">
             迷う時間を減らすのが目的なので、決め方から選べるようにしています。
           </p>
+
+          {/* 服を選ぶ前に気温を知っておくと、選び直しが減る。 */}
+          <div className="mb-6">
+            <WeatherBar />
+          </div>
 
           <div className="space-y-3">
             {BUILD_MODES.map((m) => (

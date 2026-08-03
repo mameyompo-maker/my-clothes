@@ -15,7 +15,16 @@ import {
   unfollowUser,
 } from "@/lib/firestore";
 import { BODY_TYPES, PERSONAL_COLORS, STYLE_GENRES, threadId, type StylePost, type UserProfile } from "@/types/models";
-import { Avatar, EmptyState, IconButton, PrimaryButton, SecondaryButton, Skeleton, TopBar } from "@/components/ui";
+import {
+  Avatar,
+  EmptyState,
+  IconButton,
+  PrimaryButton,
+  SecondaryButton,
+  Skeleton,
+  TopBar,
+  VerifiedBadge,
+} from "@/components/ui";
 import { IconChevronLeft, IconGrid, IconMessage } from "@/components/icons";
 
 export default function UserProfilePage() {
@@ -106,7 +115,12 @@ export default function UserProfilePage() {
   return (
     <>
       <TopBar
-        title={target?.name ?? "ユーザー"}
+        title={
+          <span className="flex min-w-0 items-center justify-center gap-1">
+            <span className="truncate">{target?.name ?? "ユーザー"}</span>
+            {target?.official && <VerifiedBadge size={15} />}
+          </span>
+        }
         left={
           <IconButton label="戻る" onClick={() => router.back()}>
             <IconChevronLeft className="h-5 w-5" />

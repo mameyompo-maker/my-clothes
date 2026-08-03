@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { createStylePost, getOutfitPost, listClosetItems } from "@/lib/firestore";
+import { getCurrentPlaceName } from "@/lib/weather";
 import { compressImage } from "@/lib/image";
 import {
   SEASONS,
@@ -44,6 +45,9 @@ function NewStylePostContent() {
   const [season, setSeason] = useState<Season | null>(seasonOfMonth(new Date().getMonth() + 1));
   const [visibility, setVisibility] = useState<PostVisibility>("public");
   const [itemTags, setItemTags] = useState<ItemTag[]>([]);
+  // 撮った場所。市区町村までしか持たない。他人から見えるので、付けるかは本人が決める。
+  const [placeName, setPlaceName] = useState("");
+  const [locating, setLocating] = useState(false);
   const [closetItems, setClosetItems] = useState<ClosetItem[]>([]);
   const [pendingPoint, setPendingPoint] = useState<{ x: number; y: number } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -131,6 +135,7 @@ function NewStylePostContent() {
           season,
           visibility,
           outfitPostId,
+          placeName: placeName.trim() || null,
         },
         compressed
       );
@@ -238,6 +243,68 @@ function NewStylePostContent() {
               </Chip>
             </div>
           </Field>
+
+          <Field
+            label="場所(任意)"
+            hint="市区町村までしか保存しません。番地や座標は付きません。空欄なら場所は載りません。"
+          >
+            <div className="flex gap-2">
+              <input
+                value={placeName}
+                onChange={(e) => setPlaceName(e.target.value)}
+                placeholder="渋谷区"
+                maxLength={40}
+                className={inputClass}
+              />
+              <button
+                type="button"
+                disabled={locating}
+                onClick={async () => {
+                  setLocating(true);
+                  try {
+                    const name = await getCurrentPlaceName();
+                    if (name) setPlaceName(name);
+                  } catch {
+                    // 拒否された場合は何もしない。手で入力してもらえばよい。
+                  } finally {
+                    setLocating(false);
+                  }
+                }}
+                className="tappable shrink-0 rounded-2xl border border-border-strong px-4 text-xs font-bold disabled:opacity-50"
+              >
+                {locating ? "取得中…" : "現在地"}
+              </button>
+            </div>
+          </Field>
+
+          {itemTags.length > 0 && (
+            <Field
+              label="タグの購入リンク(任意)"
+              hint="ブランドの商品ページなどを入れると、見た人がタップして飛べます。"
+            >
+              <div className="space-y-2">
+                {itemTags.map((tag, i) => (
+                  <div key={i}>
+                    <p className="mb-1 truncate text-[11px] font-semibold text-muted-foreground">
+                      {tag.brand ? `${tag.brand} / ` : ""}
+                      {tag.label}
+                    </p>
+                    <input
+                      value={tag.url ?? ""}
+                      onChange={(e) =>
+                        setItemTags((prev) =>
+                          prev.map((t, idx) => (idx === i ? { ...t, url: e.target.value } : t))
+                        )
+                      }
+                      inputMode="url"
+                      placeholder="https://..."
+                      className={inputClass}
+                    />
+                  </div>
+                ))}
+              </div>
+            </Field>
+          )}
 
           <Field label="ジャンル">
             <div className="flex flex-wrap gap-2">

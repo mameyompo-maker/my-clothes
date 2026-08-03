@@ -34,6 +34,7 @@ import {
   Skeleton,
   TopBar,
   inputClass,
+  VerifiedBadge,
 } from "@/components/ui";
 import {
   IconCalendar,
@@ -172,7 +173,12 @@ export default function ProfilePage() {
   return (
     <>
       <TopBar
-        left={<span className="text-lg font-bold tracking-tight">{profile.name}</span>}
+        left={
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate text-lg font-bold tracking-tight">{profile.name}</span>
+            {profile.official && <VerifiedBadge size={16} />}
+          </span>
+        }
         right={
           <>
             <Link href="/calendar" aria-label="カレンダー">

@@ -7,6 +7,7 @@ import { listClosetItems, watchPublicStylePosts } from "@/lib/firestore";
 import { recommendHeadline } from "@/lib/recommend";
 import type { StylePost } from "@/types/models";
 import { StylePostCard } from "@/components/StylePostCard";
+import { WeatherBar } from "@/components/WeatherBar";
 import { EmptyState, IconButton, PrimaryButton, Skeleton, TopBar } from "@/components/ui";
 import { IconMessage, IconSearch, IconSparkles } from "@/components/icons";
 
@@ -47,6 +48,10 @@ export default function HomeFeedPage() {
 
       <div className="mx-auto max-w-lg pb-28">
         <div className="px-4 pt-4">
+          <div className="mb-3">
+            <WeatherBar />
+          </div>
+
           <Link
             href="/create"
             className="tappable mb-5 flex items-center gap-3 rounded-3xl border border-accent/30 bg-accent-soft p-4"

@@ -3,10 +3,30 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { addComment, getStylePost, watchComments } from "@/lib/firestore";
-import type { PostComment, StylePost } from "@/types/models";
+import { addComment, getStylePost, updateStylePost, watchComments } from "@/lib/firestore";
+import {
+  SEASONS,
+  STYLE_GENRES,
+  type ItemTag,
+  type PostComment,
+  type PostVisibility,
+  type Season,
+  type StyleGenre,
+  type StylePost,
+} from "@/types/models";
 import { StylePostCard } from "@/components/StylePostCard";
-import { Avatar, IconButton, Skeleton, TopBar, inputClass, timeAgo } from "@/components/ui";
+import {
+  Avatar,
+  BottomSheet,
+  Chip,
+  Field,
+  IconButton,
+  PrimaryButton,
+  Skeleton,
+  TopBar,
+  inputClass,
+  timeAgo,
+} from "@/components/ui";
 import { IconChevronLeft, IconSend } from "@/components/icons";
 
 export default function StylePostDetailPage() {
@@ -19,6 +39,9 @@ export default function StylePostDetailPage() {
   const [comments, setComments] = useState<PostComment[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  const isMine = Boolean(post && user && post.ownerUid === user.uid);
 
   useEffect(() => {
     getStylePost(postId).then((p) => {
@@ -66,6 +89,13 @@ export default function StylePostDetailPage() {
           <IconButton label="戻る" onClick={() => router.back()}>
             <IconChevronLeft className="h-5 w-5" />
           </IconButton>
+        }
+        right={
+          isMine ? (
+            <button onClick={() => setEditing(true)} className="text-sm font-bold text-accent">
+              編集
+            </button>
+          ) : undefined
         }
       />
 
@@ -125,6 +155,150 @@ export default function StylePostDetailPage() {
           </button>
         </div>
       </form>
+
+      <BottomSheet open={editing && Boolean(post)} onClose={() => setEditing(false)} title="投稿を編集">
+        {post && (
+          <EditPostForm
+            post={post}
+            onSaved={(patch) => {
+              setPost({ ...post, ...patch });
+              setEditing(false);
+            }}
+          />
+        )}
+      </BottomSheet>
     </>
+  );
+}
+
+/**
+ * 投稿の編集。写真だけは差し替えられない。
+ * いいねが付いたあとに中身をすり替えられると、反応の意味が変わってしまうため。
+ */
+function EditPostForm({
+  post,
+  onSaved,
+}: {
+  post: StylePost;
+  onSaved: (patch: Partial<StylePost>) => void;
+}) {
+  const [caption, setCaption] = useState(post.caption);
+  const [visibility, setVisibility] = useState<PostVisibility>(post.visibility);
+  const [genres, setGenres] = useState<StyleGenre[]>(post.genres);
+  const [season, setSeason] = useState<Season | null>(post.season);
+  const [placeName, setPlaceName] = useState(post.placeName ?? "");
+  const [itemTags, setItemTags] = useState<ItemTag[]>(post.itemTags);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function toggleGenre(value: StyleGenre) {
+    setGenres((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError("");
+    const patch = {
+      caption: caption.trim(),
+      visibility,
+      genres,
+      season,
+      placeName: placeName.trim() || null,
+      itemTags,
+    };
+    try {
+      await updateStylePost(post.id, patch);
+      onSaved(patch);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存に失敗しました。");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="pb-4">
+      <Field label="キャプション">
+        <textarea
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+          rows={3}
+          className={`${inputClass} resize-none`}
+        />
+      </Field>
+
+      <Field label="公開範囲">
+        <div className="flex gap-2">
+          <Chip selected={visibility === "public"} onClick={() => setVisibility("public")}>
+            みんなに公開
+          </Chip>
+          <Chip selected={visibility === "friends"} onClick={() => setVisibility("friends")}>
+            友達だけ
+          </Chip>
+        </div>
+      </Field>
+
+      <Field label="場所" hint="市区町村まで。空欄にすると場所を消せます。">
+        <input
+          value={placeName}
+          onChange={(e) => setPlaceName(e.target.value)}
+          maxLength={40}
+          className={inputClass}
+        />
+      </Field>
+
+      <Field label="ジャンル">
+        <div className="flex flex-wrap gap-2">
+          {STYLE_GENRES.map((g) => (
+            <Chip key={g.value} size="sm" selected={genres.includes(g.value)} onClick={() => toggleGenre(g.value)}>
+              {g.label}
+            </Chip>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="季節">
+        <div className="flex flex-wrap gap-2">
+          {SEASONS.map((s) => (
+            <Chip
+              key={s.value}
+              size="sm"
+              selected={season === s.value}
+              onClick={() => setSeason(season === s.value ? null : s.value)}
+            >
+              {s.emoji} {s.label}
+            </Chip>
+          ))}
+        </div>
+      </Field>
+
+      {itemTags.length > 0 && (
+        <Field label="タグの購入リンク" hint="ブランドの商品ページなどを入れると、見た人がタップして飛べます。">
+          <div className="space-y-2">
+            {itemTags.map((tag, i) => (
+              <div key={i}>
+                <p className="mb-1 truncate text-[11px] font-semibold text-muted-foreground">
+                  {tag.brand ? `${tag.brand} / ` : ""}
+                  {tag.label}
+                </p>
+                <input
+                  value={tag.url ?? ""}
+                  onChange={(e) =>
+                    setItemTags((prev) => prev.map((t, idx) => (idx === i ? { ...t, url: e.target.value } : t)))
+                  }
+                  inputMode="url"
+                  placeholder="https://..."
+                  className={inputClass}
+                />
+              </div>
+            ))}
+          </div>
+        </Field>
+      )}
+
+      {error && <p className="mb-2 text-xs text-danger">{error}</p>}
+      <PrimaryButton onClick={handleSave} disabled={saving}>
+        {saving ? "保存しています…" : "保存する"}
+      </PrimaryButton>
+    </div>
   );
 }

@@ -139,6 +139,13 @@ export interface UserProfile {
    */
   primaryWardrobe?: Wardrobe;
   /**
+   * 公式・認証済みアカウント。ブランドや事務所の公式、スカウト対象のモデルなどに付ける。
+   *
+   * **クライアントからは書き換えられない**(`plan` と同じく firestore.rules で禁止)。
+   * 自己申告で付けられると認証の意味が無くなるため、運営が Admin SDK から付ける前提。
+   */
+  official?: boolean;
+  /**
    * 課金プラン。**クライアントからは書き換えられない**(firestore.rules で 'plan' の
    * 変更を禁止している)。決済確認後に Admin SDK 側から書き込む前提。
    * 自己申告で有料機能が開けてしまわないようにするため。
@@ -290,6 +297,31 @@ export interface ItemTag {
   /** 画像に対する相対座標 (0-1)。 */
   x: number;
   y: number;
+  /**
+   * その服を買えるページ。任意。
+   *
+   * 将来ここにアフィリエイトの計測パラメータを足せるよう、**リンクは1箇所
+   * (`buildOutboundUrl`)を必ず通してから開く**ことにしている。呼び出し側が
+   * 直接 href に入れてしまうと、後から差し込む場所が散らばって手が付けられなくなる。
+   */
+  url?: string;
+}
+
+/**
+ * 外部サイトへ送り出すURL。今は素通しだが、アフィリエイト導入時はここだけ直せばよい。
+ * 危険なスキーム(javascript: など)はここで弾く。
+ */
+export function buildOutboundUrl(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    // 例: url.searchParams.set("utm_source", "myclothes") をここに足す。
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 export type PostVisibility = "public" | "friends";
@@ -312,6 +344,13 @@ export interface StylePost {
   createdAt: number;
   /** 元になった2択投稿。カレンダー上で紐づけるために持つ。 */
   outfitPostId: string | null;
+
+  // --- あとから追加。既存ドキュメントには無いので必ず optional。
+  /**
+   * 撮った場所。**市区町村までしか持たない**(緯度経度は保存しない)。
+   * 若い利用者が多い想定なので、自宅が特定できる粒度の位置情報は最初から持たない。
+   */
+  placeName?: string | null;
 }
 
 export interface PostLike {
