@@ -113,7 +113,7 @@ export default function CalendarPage() {
                 <span
                   key={w}
                   className={`text-center text-[10px] font-bold ${
-                    i === 0 ? "text-danger/70" : i === 6 ? "text-accent/70" : "text-muted-foreground"
+                    i === 0 ? "text-danger/70" : i === 6 ? "text-foreground/70" : "text-muted-foreground"
                   }`}
                 >
                   {w}
@@ -137,7 +137,7 @@ export default function CalendarPage() {
 
                 const cell = (
                   <div
-                    className={`relative overflow-hidden rounded-lg ${
+                    className={`relative overflow-hidden rounded-none ${
                       thumb ? "" : "border border-border bg-surface"
                     }`}
                     style={{ aspectRatio: "3 / 4" }}
@@ -191,9 +191,9 @@ export default function CalendarPage() {
                         <li key={day}>
                           <Link
                             href={href}
-                            className="tappable flex items-center gap-3 rounded-2xl border border-border bg-surface p-2.5"
+                            className="tappable flex items-center gap-3 rounded-none border border-border bg-surface p-2.5"
                           >
-                            <div className="relative h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-surface-muted">
+                            <div className="relative h-16 w-12 shrink-0 overflow-hidden rounded-none bg-surface-muted">
                               {thumb && <Image src={thumb} alt="" fill className="object-cover" unoptimized />}
                             </div>
                             <div className="min-w-0 flex-1">

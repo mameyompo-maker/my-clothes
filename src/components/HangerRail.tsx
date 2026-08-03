@@ -75,7 +75,7 @@ function HangingItem({
       {/* ハンガーのフック */}
       <svg
         viewBox="0 0 24 16"
-        className={`h-4 w-6 shrink-0 ${selected ? "text-accent" : "text-border-strong"} ${
+        className={`h-4 w-6 shrink-0 ${selected ? "text-foreground" : "text-muted-foreground"} ${
           selected ? "" : "animate-sway"
         }`}
         fill="none"
@@ -88,12 +88,14 @@ function HangingItem({
       </svg>
 
       <div
-        className={`relative w-full overflow-hidden rounded-xl bg-surface-muted transition-all duration-200 ${
-          selected ? "hanger-selected ring-2 ring-accent" : justTapped ? "hanger-selected" : ""
+        className={`relative w-full overflow-hidden rounded-none bg-surface transition-all duration-200 ${
+          selected ? "hanger-selected ring-2 ring-foreground" : justTapped ? "hanger-selected" : ""
         }`}
         style={{ aspectRatio: "3 / 4" }}
       >
-        <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
+        {/* 服は商品撮影なので contain で全体を見せる。cover だと裾や袖が切れるうえ、
+            引き伸ばし率が上がって元画像の粗さが目立つ。 */}
+        <Image src={item.imageUrl} alt={item.label} fill className="object-contain p-1.5" unoptimized />
 
         {selected && (
           <span className="animate-pop-in absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-accent-foreground">

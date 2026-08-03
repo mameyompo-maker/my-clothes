@@ -51,7 +51,7 @@ export default function TokushohoPage() {
 
       <div className="mx-auto max-w-lg px-4 pb-28 pt-5">
         {unfilled > 0 && (
-          <div className="mb-5 rounded-2xl border border-danger/40 bg-danger/5 p-4">
+          <div className="mb-5 rounded-none border border-danger/40 bg-danger/5 p-4">
             <p className="text-sm font-bold text-danger">この表記はまだ完成していません</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               {unfilled}項目が未記入です。日本で有料サービスを販売するにはこの表示が法令上必要なので、
@@ -62,7 +62,7 @@ export default function TokushohoPage() {
           </div>
         )}
 
-        <dl className="divide-y divide-border overflow-hidden rounded-3xl border border-border bg-surface">
+        <dl className="divide-y divide-border overflow-hidden rounded-none border border-border bg-surface">
           {ROWS.map((row) => (
             <div key={row.label} className="px-4 py-3.5">
               <dt className="mb-1 text-xs font-bold text-muted-foreground">{row.label}</dt>

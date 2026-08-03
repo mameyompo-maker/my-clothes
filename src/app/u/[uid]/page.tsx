@@ -153,7 +153,7 @@ export default function UserProfilePage() {
                     {favorites.map((p) => (
                       <Link key={p.id} href={`/post/${p.id}`} className="tappable">
                         <div
-                          className="relative overflow-hidden rounded-2xl bg-surface-muted"
+                          className="relative overflow-hidden rounded-none bg-surface-muted"
                           style={{ aspectRatio: "3 / 4" }}
                         >
                           <Image src={p.imageUrl} alt={p.caption || "お気に入り"} fill className="object-cover" unoptimized />

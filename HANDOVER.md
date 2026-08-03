@@ -185,6 +185,51 @@ Secret Managerを書き換えただけでは反映されない。
 
 ---
 
+## 4.5 デザインシステム(2026-08-03 全面刷新)
+
+参照元は `Claude_general/powerpoint_design_textbook/fashion_cheeful.pptx`。
+雑誌のエディトリアル調で、**白基調+ピンクだった旧デザインとは別物**になっている。
+
+### 色(pptxから抽出した実値)
+| トークン | 値 | 用途 |
+|---|---|---|
+| `--accent` | `#EBFC34` | ネオンライム。**面としてのみ使う** |
+| `--foreground` | `#151515` | 文字・罫線 |
+| `--background` | `#D9D9D9` | 地色 |
+| `--sage` | `#8E9C7F` | 補助 |
+
+> ⚠ **ネオンを文字色・アイコン色に使わないこと。** `#EBFC34` は地色 `#D9D9D9` と
+> 明度がほぼ同じで、文字にすると読めない。強調は「ネオンの面に黒を乗せる」で行う。
+> 旧デザインの `text-accent` は全て `text-foreground` に置換済み。同じ轍を踏まないこと。
+
+### 書体
+`--font-display` = Jost(Futuraの代替、見出し)/ `--font-body` = Inter(Aileronの代替)/
+`--font-editorial` = Playfair Display(装飾)。**日本語はWebフォントを読まず端末のゴシックに任せている**
+(日本語フォントは数MBになるため)。ユーティリティクラスは `globals.css` の
+`.display` `.display-ja` `.editorial` `.index-tag` `.overline`。
+
+### 形
+角は立てる(`--radius-card: 2px`)。`rounded-*` は全て `rounded-none` に置換済みで、
+残しているのは `rounded-full`(アバター・チップ・スピナー)のみ。
+影はにじませず、版ズレ風の硬いオフセット(`.hard-edge`)を使う。
+
+### ダークモード
+**持たない。** この配色は明るい紙面にネオンが乗ることが要で、暗転させると別物になるため
+意図的にライト一本にした。`@media (prefers-color-scheme: dark)` のブロックは削除済み。
+
+## 4.6 初期クローゼット(実物の写真)
+
+`public/seed/men/`(12点)と `public/seed/women/`(14点)。定義は `src/data/seedClosetItems.ts`。
+オンボーディングで「レディース / メンズ / 両方」を選ばせ、選んだ側だけを投入する。
+
+- **元画像の解像度が低い**(最大でも 138×233px)。そのため服の表示は `object-contain` に
+  してあり、`object-cover` に戻すと引き伸ばし率が上がって粗さが目立つ。
+  同じファイル名で高解像度版を上書きすれば、コード変更なしで差し替わる。
+- **レディースに靴、メンズにアウターとワンピースが無い**(元の写真に個別の切り出しが
+  存在しなかった)。「上から順に選ぶ」フローでそのカテゴリーが空になる。写真を足すなら
+  `cloth_image/` に置いて同じ手順で追加すること。
+- 旧イラスト(SVG 10点)は `Delete_candidate/my_clothes_seed_svg_20260803_185455/` へ退避済み。
+
 ## 5. 実装していないもの(と理由)
 
 | 機能 | 理由 |

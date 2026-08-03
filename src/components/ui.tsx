@@ -3,6 +3,12 @@
 import Image from "next/image";
 import type { ReactNode } from "react";
 
+/**
+ * 共通UI。参照デザイン(fashion_cheeful.pptx)に合わせて、
+ * 角は立てる・影はにじませない・強調はネオンの面で行う、を全体の規則にしている。
+ * 丸みを残すのは人を表すアバターと、タグとして読ませたいチップだけ。
+ */
+
 /** 頭文字だけのフォールバック付きアバター。avatarUrl は Google 由来で欠けることがある。 */
 export function Avatar({
   src,
@@ -13,7 +19,7 @@ export function Avatar({
   src?: string | null;
   name: string;
   size?: number;
-  /** ストーリー風のグラデーションリング。新着や強調に使う。 */
+  /** 新着や強調を示すネオンのリング。 */
   ring?: boolean;
 }) {
   const inner = src ? (
@@ -27,7 +33,7 @@ export function Avatar({
     />
   ) : (
     <div
-      className="flex h-full w-full items-center justify-center rounded-full bg-surface-strong font-semibold text-muted-foreground"
+      className="flex h-full w-full items-center justify-center rounded-full bg-foreground font-bold text-background"
       style={{ fontSize: size * 0.4 }}
     >
       {name.trim().charAt(0) || "?"}
@@ -68,10 +74,10 @@ export function Chip({
     <Tag
       onClick={onClick}
       type={onClick ? "button" : undefined}
-      className={`tappable shrink-0 rounded-full border font-medium transition-colors ${pad} ${
+      className={`tappable shrink-0 rounded-full border font-semibold transition-colors ${pad} ${
         selected
-          ? "border-accent bg-accent text-accent-foreground"
-          : "border-border bg-surface text-muted-foreground"
+          ? "border-foreground bg-accent text-accent-foreground"
+          : "border-border bg-transparent text-muted-foreground"
       }`}
     >
       {children}
@@ -79,10 +85,26 @@ export function Chip({
   );
 }
 
-export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
+/**
+ * セクション見出し。参照デザインの (001) に倣い、番号を渡すと頭に付く。
+ * 見出しそのものは詰めた太字で、紙面の小見出しのように扱う。
+ */
+export function SectionTitle({
+  children,
+  action,
+  index,
+}: {
+  children: ReactNode;
+  action?: ReactNode;
+  /** 1 を渡すと (001) と表示される。節が並ぶ画面でのみ使うこと。 */
+  index?: number;
+}) {
   return (
-    <div className="mb-3 flex items-center justify-between">
-      <h2 className="text-sm font-bold tracking-tight">{children}</h2>
+    <div className="mb-3 flex items-end justify-between gap-3 border-b border-border pb-1.5">
+      <div className="flex min-w-0 items-baseline gap-2">
+        {index !== undefined && <span className="index-tag">{String(index).padStart(3, "0")}</span>}
+        <h2 className="display-ja truncate text-base">{children}</h2>
+      </div>
       {action}
     </div>
   );
@@ -100,10 +122,10 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-border px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 border border-border bg-surface px-6 py-12 text-center">
       {icon && <div className="text-muted-foreground opacity-60">{icon}</div>}
       <div className="space-y-1">
-        <p className="text-sm font-semibold">{title}</p>
+        <p className="display-ja text-sm">{title}</p>
         {description && <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>}
       </div>
       {action}
@@ -112,10 +134,10 @@ export function EmptyState({
 }
 
 export function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`skeleton rounded-2xl ${className}`} />;
+  return <div className={`skeleton ${className}`} />;
 }
 
-/** 画面上部の固定ヘッダー。Instagram のように薄く曇らせて写真の上に重ねる。 */
+/** 画面上部の固定ヘッダー。紙面の柱のように、下に硬い罫線を一本引く。 */
 export function TopBar({
   title,
   left,
@@ -126,10 +148,10 @@ export function TopBar({
   right?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 border-b-[1.5px] border-border-strong bg-background/95 backdrop-blur-xl">
       <div className="mx-auto flex h-14 max-w-lg items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">{left}</div>
-        {title && <div className="flex-1 truncate text-center text-base font-bold tracking-tight">{title}</div>}
+        {title && <div className="display-ja flex-1 truncate text-center text-base">{title}</div>}
         <div className="flex flex-1 items-center justify-end gap-1">{right}</div>
       </div>
     </header>
@@ -160,6 +182,10 @@ export function IconButton({
   );
 }
 
+/**
+ * 主要な操作。ネオンの面に黒文字、版ズレ風の硬い影。
+ * ネオンの上に白文字は読めないので、文字色は必ず --accent-foreground(黒)を使う。
+ */
 export function PrimaryButton({
   children,
   onClick,
@@ -178,7 +204,7 @@ export function PrimaryButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`tappable rounded-full bg-accent px-6 py-3.5 text-sm font-bold text-accent-foreground shadow-[var(--shadow-float)] disabled:opacity-40 disabled:shadow-none ${
+      className={`tappable hard-edge display-ja bg-accent px-6 py-3.5 text-sm text-accent-foreground disabled:opacity-40 disabled:shadow-none ${
         full ? "w-full" : ""
       }`}
     >
@@ -203,7 +229,7 @@ export function SecondaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`tappable rounded-full border border-border-strong bg-surface px-6 py-3 text-sm font-semibold disabled:opacity-40 ${
+      className={`tappable display-ja border-[1.5px] border-border-strong bg-transparent px-6 py-3 text-sm disabled:opacity-40 ${
         full ? "w-full" : ""
       }`}
     >
@@ -227,11 +253,11 @@ export function BottomSheet({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <button aria-label="閉じる" onClick={onClose} className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" />
-      <div className="animate-fade-up relative max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-border bg-background pb-[calc(env(safe-area-inset-bottom)+20px)]">
+      <button aria-label="閉じる" onClick={onClose} className="absolute inset-0 bg-foreground/50" />
+      <div className="animate-fade-up relative max-h-[88vh] w-full max-w-lg overflow-y-auto border-t-[1.5px] border-border-strong bg-background pb-[calc(env(safe-area-inset-bottom)+20px)]">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/95 px-5 py-4 backdrop-blur">
-          <h3 className="text-base font-bold">{title}</h3>
-          <button onClick={onClose} className="tappable text-sm font-semibold text-muted-foreground">
+          <h3 className="display-ja text-base">{title}</h3>
+          <button onClick={onClose} className="tappable overline">
             閉じる
           </button>
         </div>
@@ -250,7 +276,7 @@ export function BottomSheet({
  */
 export function ActionBar({ children }: { children: ReactNode }) {
   return (
-    <div className="fixed bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom))] left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-3 pt-3 backdrop-blur-xl">
+    <div className="fixed bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom))] left-0 right-0 z-30 border-t-[1.5px] border-border-strong bg-background/95 px-4 pb-3 pt-3 backdrop-blur-xl">
       <div className="mx-auto max-w-lg">{children}</div>
     </div>
   );
@@ -259,7 +285,7 @@ export function ActionBar({ children }: { children: ReactNode }) {
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="mb-4 block">
-      <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">{label}</span>
+      <span className="overline mb-1.5 block">{label}</span>
       {children}
       {hint && <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">{hint}</span>}
     </label>
@@ -267,7 +293,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 }
 
 export const inputClass =
-  "w-full rounded-2xl border border-border bg-surface px-4 py-3 text-sm outline-none transition-colors focus:border-accent";
+  "w-full border border-border-strong bg-surface px-4 py-3 text-sm outline-none transition-colors focus:border-foreground focus:bg-accent-soft";
 
 /** 相対時刻。フィードで「3分前」のように出す。 */
 export function timeAgo(ms: number): string {

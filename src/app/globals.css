@@ -2,61 +2,56 @@
 
 /* ---------------------------------------------------------------------------
    デザイントークン
-   10〜30代女性向け。Instagram / BeReal / WEAR を参照した、白基調 + 一色アクセント。
-   色数を絞って写真(服)を主役にするのが狙い。
+
+   参照: powerpoint_design_textbook/fashion_cheeful.pptx
+   雑誌のエディトリアル。ライトグレーの紙面に、ニアブラックの極太見出しと
+   ネオンライムのアクセント。写真は余白を取らず断ち切りで大きく置く。
+
+   pptx から抽出した実際の値:
+     #151515 本文・見出し / #EBFC34 アクセント / #D9D9D9 地色 / #8E9C7F 補助
+   書体は Futura(見出し)・Aileron(本文)・Perandory Condensed(装飾)。
+   いずれもWebフォントとして配れないため、近い雰囲気のもので置き換えている
+   (Jost → Futura、Playfair Display → Perandory)。日本語は端末のゴシックに任せる。
+
+   ダークモードは持たない。この配色は「明るい紙面にネオンが乗る」ことが要で、
+   暗転させると別物になるため、意図的にライト一本にしている。
 --------------------------------------------------------------------------- */
 
 :root {
-  --background: #fdfcfb;
-  --foreground: #16141a;
-  --surface: #ffffff;
-  --surface-muted: #f4f1ee;
-  --surface-strong: #eae5e0;
+  --background: #d9d9d9;
+  --foreground: #151515;
+  --surface: #efefed;
+  --surface-muted: #cbcbc8;
+  --surface-strong: #151515;
 
-  --accent: #ff3b6b;
-  --accent-soft: #ffe6ed;
-  --accent-foreground: #ffffff;
+  --accent: #ebfc34;
+  --accent-soft: #f5ff9e;
+  /* ネオンの上に白文字は読めない。アクセント上の文字は必ず黒に寄せる。 */
+  --accent-foreground: #151515;
 
-  --muted-foreground: #79737d;
-  --border: #ebe6e2;
-  --border-strong: #ddd6d0;
+  --sage: #8e9c7f;
 
-  --success: #12b981;
-  --danger: #ef4444;
+  --muted-foreground: #5f5f5c;
+  --border: #b6b6b3;
+  --border-strong: #151515;
 
-  /* ストーリーリングやハイライトに使うグラデーション */
-  --gradient-brand: linear-gradient(135deg, #ff8a3d 0%, #ff3b6b 50%, #a24bff 100%);
+  --success: #6f8a5c;
+  --danger: #d62828;
 
-  --radius-card: 20px;
+  /* 見出しの下敷きなど、面で色を置きたいときに使う。グラデーションは使わない。 */
+  --gradient-brand: var(--accent);
+
+  /* エディトリアル基調なので角はほぼ立てる。丸めるのはチップと一部のボタンだけ。 */
+  --radius-card: 2px;
   --radius-pill: 999px;
 
   /* 下タブの高さ。画面下に固定する操作バーは、この分だけ持ち上げないと
      タブに隠れて押せなくなる(実際にそれで投稿ボタンが押せなくなっていた)。 */
   --nav-h: 58px;
 
-  --shadow-card: 0 1px 2px rgba(22, 20, 26, 0.04), 0 8px 24px rgba(22, 20, 26, 0.06);
-  --shadow-float: 0 8px 30px rgba(255, 59, 107, 0.28);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0c0b0e;
-    --foreground: #f6f4f7;
-    --surface: #16151a;
-    --surface-muted: #1f1d24;
-    --surface-strong: #2a2731;
-
-    --accent: #ff4d78;
-    --accent-soft: #35141f;
-    --accent-foreground: #ffffff;
-
-    --muted-foreground: #9d96a6;
-    --border: #26232c;
-    --border-strong: #35313d;
-
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
-    --shadow-float: 0 8px 30px rgba(255, 77, 120, 0.24);
-  }
+  /* にじむ影は使わない。版ズレのような硬いオフセットで紙っぽさを出す。 */
+  --shadow-card: 3px 3px 0 rgba(21, 21, 21, 0.12);
+  --shadow-float: 4px 4px 0 var(--foreground);
 }
 
 @theme inline {
@@ -68,19 +63,21 @@
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-accent-foreground: var(--accent-foreground);
+  --color-sage: var(--sage);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-success: var(--success);
   --color-danger: var(--danger);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-serif: var(--font-editorial);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), "Hiragino Sans", "Noto Sans JP", Arial, sans-serif;
+  font-family: var(--font-body), "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
   /* 数字を等幅にして、いいね数やフォロワー数が増減してもガタつかせない。 */
   font-variant-numeric: tabular-nums;
 }
@@ -97,18 +94,86 @@ select {
 }
 
 /* ---------------------------------------------------------------------------
+   タイポグラフィ
+
+   このアプリの見た目はほぼここで決まる。見出しは「大きく・詰めて・大文字」。
+   日本語には大文字がないので、代わりに字間を詰めて太さで押し切る。
+--------------------------------------------------------------------------- */
+
+/* 欧文の大見出し。ページタイトルや数字に使う。 */
+.display {
+  font-family: var(--font-display), "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 0.92;
+  text-transform: uppercase;
+}
+
+/* 日本語の見出し。大文字化はせず、字間を詰めて太くする。 */
+.display-ja {
+  font-family: var(--font-display), "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+/* 表紙の "THANK YOU" のような、細身セリフの装飾見出し。多用しないこと。 */
+.editorial {
+  font-family: var(--font-editorial), Georgia, serif;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 0.95;
+}
+
+/* (001) のような通し番号。節の頭に置く。 */
+.index-tag {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  color: var(--foreground);
+}
+.index-tag::before {
+  content: "(";
+}
+.index-tag::after {
+  content: ")";
+}
+
+/* 小さな全大文字ラベル。セクション見出しやボタンの補助に。 */
+.overline {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* ---------------------------------------------------------------------------
    ユーティリティ
 --------------------------------------------------------------------------- */
 
+/* アバターの縁取り。以前は虹色グラデーションだったが、面のネオンに変えた。 */
 .gradient-ring {
-  background: var(--gradient-brand);
+  background: var(--accent);
 }
 
+/* 見出しをネオンで塗る。写真の上に重ねると pptx の見え方になる。 */
 .gradient-text {
-  background: var(--gradient-brand);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--accent);
+  -webkit-text-stroke: 0.5px rgba(21, 21, 21, 0.25);
+}
+
+/* 版ズレ風の硬い影。押せる面であることを示すのに使う。 */
+.hard-edge {
+  border: 1.5px solid var(--foreground);
+  box-shadow: var(--shadow-float);
+}
+
+/* 写真の上に敷く、わずかな暗幕。白い服でも文字が読めるようにする。 */
+.photo-scrim {
+  background: linear-gradient(to top, rgba(21, 21, 21, 0.55) 0%, rgba(21, 21, 21, 0) 55%);
 }
 
 /* 横スクロールのスクロールバーを隠す(タブやチップの列で使う)。 */
@@ -127,6 +192,12 @@ select {
 .tappable:active {
   transform: scale(0.97);
   opacity: 0.9;
+}
+
+/* 硬い影を持つ面は、沈むときに影も潰すと押した感じが出る。 */
+.tappable.hard-edge:active {
+  transform: translate(3px, 3px);
+  box-shadow: 1px 1px 0 var(--foreground);
 }
 
 /* ---------------------------------------------------------------------------
@@ -225,7 +296,7 @@ select {
   background: linear-gradient(
     90deg,
     var(--surface-muted) 25%,
-    var(--surface-strong) 37%,
+    var(--surface) 37%,
     var(--surface-muted) 63%
   );
   background-size: 200% 100%;

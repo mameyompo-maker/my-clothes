@@ -33,7 +33,7 @@ export function OutfitCard({
 
   if (candidate.composedImageUrl) {
     return (
-      <div className={`relative overflow-hidden rounded-2xl bg-surface-muted ${className}`}>
+      <div className={`relative overflow-hidden rounded-none bg-surface-muted ${className}`}>
         <Image
           src={candidate.composedImageUrl}
           alt="AIが合成したコーデ"
@@ -49,7 +49,7 @@ export function OutfitCard({
   }
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl bg-surface-muted ${className}`}>
+    <div className={`relative overflow-hidden rounded-none bg-surface-muted ${className}`}>
       <div className="absolute inset-0 flex flex-col">
         {faceUrl && (
           <div className="relative flex h-[46%] items-center justify-center bg-surface-strong/40 pt-3">
@@ -67,8 +67,8 @@ export function OutfitCard({
 
         <div className={`grid flex-1 gap-[3px] p-[3px] ${gridClassFor(outfitItems.length)}`}>
           {outfitItems.map((item) => (
-            <div key={item.id} className="relative overflow-hidden rounded-lg bg-surface">
-              <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
+            <div key={item.id} className="relative overflow-hidden rounded-none bg-surface">
+              <Image src={item.imageUrl} alt={item.label} fill className="object-contain p-1" unoptimized />
             </div>
           ))}
           {outfitItems.length === 0 && (

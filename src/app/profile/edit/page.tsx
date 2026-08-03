@@ -140,7 +140,7 @@ export default function EditProfilePage() {
           <button
             onClick={() => avatarInputRef.current?.click()}
             disabled={avatarBusy}
-            className="tappable text-xs font-bold text-accent disabled:opacity-50"
+            className="tappable text-xs font-bold text-foreground disabled:opacity-50"
           >
             プロフィール画像を変更
           </button>

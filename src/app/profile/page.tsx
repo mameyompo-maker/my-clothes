@@ -230,10 +230,10 @@ export default function ProfilePage() {
             </button>
           </div>
 
-          <div className="mb-5 rounded-3xl border border-border bg-surface p-4">
+          <div className="mb-5 rounded-none border border-border bg-surface p-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-bold text-muted-foreground">あなたの招待コード</span>
-              <span className="text-lg font-extrabold tracking-[0.25em] text-accent">{profile.inviteCode}</span>
+              <span className="text-lg font-extrabold tracking-[0.25em] text-foreground">{profile.inviteCode}</span>
             </div>
             <button
               onClick={copyInviteLink}
@@ -251,7 +251,7 @@ export default function ProfilePage() {
                   readOnly
                   value={inviteUrl}
                   onFocus={(e) => e.currentTarget.select()}
-                  className="w-full rounded-xl border border-border bg-surface-muted px-3 py-2 text-xs"
+                  className="w-full rounded-none border border-border bg-surface-muted px-3 py-2 text-xs"
                 />
               </div>
             )}
@@ -262,14 +262,14 @@ export default function ProfilePage() {
               <h2 className="text-sm font-bold">お気に入りのコーデ</h2>
               <button
                 onClick={() => setFavSheet(true)}
-                className="tappable text-xs font-bold text-accent"
+                className="tappable text-xs font-bold text-foreground"
                 disabled={(posts?.length ?? 0) === 0}
               >
                 選ぶ
               </button>
             </div>
             {favoritePosts.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-border px-4 py-5 text-center text-[11px] leading-relaxed text-muted-foreground">
+              <p className="rounded-none border border-dashed border-border px-4 py-5 text-center text-[11px] leading-relaxed text-muted-foreground">
                 お気に入りの投稿を{MAX_FAVORITE_POSTS}つまでここに固定できます。
                 {(posts?.length ?? 0) === 0 && "まずは1枚投稿してみましょう。"}
               </p>
@@ -277,7 +277,7 @@ export default function ProfilePage() {
               <div className="grid grid-cols-3 gap-2">
                 {favoritePosts.map((p) => (
                   <Link key={p.id} href={`/post/${p.id}`} className="tappable">
-                    <div className="relative overflow-hidden rounded-2xl bg-surface-muted" style={{ aspectRatio: "3 / 4" }}>
+                    <div className="relative overflow-hidden rounded-none bg-surface-muted" style={{ aspectRatio: "3 / 4" }}>
                       <Image src={p.imageUrl} alt={p.caption || "お気に入り"} fill className="object-cover" unoptimized />
                     </div>
                   </Link>
@@ -288,7 +288,7 @@ export default function ProfilePage() {
 
           <button
             onClick={() => setFaceSheet(true)}
-            className="tappable mb-5 flex w-full items-center gap-3 rounded-3xl border border-border bg-surface p-4 text-left"
+            className="tappable mb-5 flex w-full items-center gap-3 rounded-none border border-border bg-surface p-4 text-left"
           >
             <IconCamera className="h-5 w-5 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
@@ -380,7 +380,7 @@ export default function ProfilePage() {
             </div>
           </Field>
           {addState.kind === "added" && (
-            <p className="-mt-2 flex items-center gap-1 text-xs text-accent">
+            <p className="-mt-2 flex items-center gap-1 text-xs text-foreground">
               <IconCheck className="h-3.5 w-3.5" />
               {addState.name}さんを友達に追加しました
             </p>
@@ -398,7 +398,7 @@ export default function ProfilePage() {
               <li key={f.uid}>
                 <Link
                   href={`/u/${f.uid}`}
-                  className="tappable flex items-center gap-3 rounded-2xl border border-border bg-surface px-3 py-2.5"
+                  className="tappable flex items-center gap-3 rounded-none border border-border bg-surface px-3 py-2.5"
                 >
                   <Avatar src={f.avatarUrl} name={f.name} size={36} />
                   <div className="min-w-0 flex-1">
@@ -423,7 +423,7 @@ export default function ProfilePage() {
             return (
               <button key={p.id} onClick={() => toggleFavorite(p.id)} className="tappable">
                 <div
-                  className={`relative overflow-hidden rounded-2xl bg-surface-muted ring-2 ${
+                  className={`relative overflow-hidden rounded-none bg-surface-muted ring-2 ${
                     selected ? "ring-accent" : "ring-transparent"
                   }`}
                   style={{ aspectRatio: "3 / 4" }}
@@ -449,7 +449,7 @@ export default function ProfilePage() {
         <input ref={fileInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleAddFace} />
         <div className="grid grid-cols-3 gap-3 pb-6">
           {faces.map((f) => (
-            <div key={f.id} className="relative aspect-square overflow-hidden rounded-2xl bg-surface-muted">
+            <div key={f.id} className="relative aspect-square overflow-hidden rounded-none bg-surface-muted">
               <Image src={f.imageUrl} alt={f.label} fill className="object-cover" unoptimized />
             </div>
           ))}
@@ -457,7 +457,7 @@ export default function ProfilePage() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="tappable flex aspect-square flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-border text-muted-foreground disabled:opacity-50"
+              className="tappable flex aspect-square flex-col items-center justify-center gap-1 rounded-none border-2 border-dashed border-border text-muted-foreground disabled:opacity-50"
             >
               <IconCamera className="h-5 w-5" />
               <span className="text-[11px]">{uploading ? "追加中…" : "追加"}</span>

@@ -197,8 +197,8 @@ function EditItemForm({
   return (
     <div>
       <div className="mb-4 flex gap-3">
-        <div className="relative h-28 w-24 shrink-0 overflow-hidden rounded-2xl bg-surface-muted">
-          <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
+        <div className="relative h-28 w-24 shrink-0 overflow-hidden rounded-none bg-surface">
+          <Image src={item.imageUrl} alt={item.label} fill className="object-contain p-1.5" unoptimized />
         </div>
         <div className="min-w-0 flex-1">
           <Field label="名前">
@@ -267,7 +267,7 @@ function EditItemForm({
       </div>
 
       {confirmDelete ? (
-        <div className="mb-4 rounded-2xl border border-danger/40 bg-danger/5 p-3">
+        <div className="mb-4 rounded-none border border-danger/40 bg-danger/5 p-3">
           <p className="mb-2 text-xs">この服をクローゼットから削除します。元に戻せません。</p>
           <div className="flex gap-2">
             <button
