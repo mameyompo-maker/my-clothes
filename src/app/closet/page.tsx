@@ -25,7 +25,7 @@ import {
   type Season,
   type StyleGenre,
 } from "@/types/models";
-import { ClosetCardGrid, WardrobeHero } from "@/components/WardrobeCloset";
+import { ClosetCardGrid, WardrobeCarousel } from "@/components/WardrobeCloset";
 import { downloadJson } from "@/lib/share";
 import {
   Avatar,
@@ -119,6 +119,11 @@ export default function ClosetPage() {
 
 
   const thisSeason = seasonOfMonth(new Date().getMonth() + 1);
+
+  // 選択中のアイテムが絞り込みで消えたら、一覧の先頭を選択中として扱う。
+  const activeFeaturedId = filtered.some((i) => i.id === featuredId)
+    ? featuredId
+    : (filtered[0]?.id ?? null);
 
   // 初期投入分がイラスト(SVG)を指したまま残っているアカウントの検出。
   // イラストは配信を止めたので、この状態だと画像が全部壊れて表示される。
@@ -265,21 +270,6 @@ export default function ClosetPage() {
           className={`${inputClass} mb-2.5`}
         />
 
-        <div className="no-scrollbar -mx-4 mb-2.5 flex gap-2 overflow-x-auto px-4">
-          <Chip selected={category === "all"} onClick={() => setCategory("all")}>
-            すべて{items ? ` (${items.length})` : ""}
-          </Chip>
-          {CLOSET_CATEGORIES.map((c) => {
-            const count = (items ?? []).filter((i) => i.category === c.value).length;
-            if (count === 0 && category !== c.value) return null;
-            return (
-              <Chip key={c.value} selected={category === c.value} onClick={() => setCategory(c.value)}>
-                {c.label} ({count})
-              </Chip>
-            );
-          })}
-        </div>
-
         <div className="no-scrollbar -mx-4 mb-2 flex gap-2 overflow-x-auto px-4">
           {SEASONS.map((s) => (
             <Chip
@@ -361,6 +351,23 @@ export default function ClosetPage() {
 
         {ioNote && <p className="mb-4 text-[11px] text-muted-foreground">{ioNote}</p>}
 
+        {/* カテゴリタブ。ワードローブの直上に置き、押してから左右にスライドすると
+            そのカテゴリの服がレールの上を流れる(Kazさん指示 2026-08-04)。 */}
+        <div className="no-scrollbar -mx-4 mb-2.5 flex gap-2 overflow-x-auto px-4">
+          <Chip selected={category === "all"} onClick={() => setCategory("all")}>
+            すべて{items ? ` (${items.length})` : ""}
+          </Chip>
+          {CLOSET_CATEGORIES.map((c) => {
+            const count = (items ?? []).filter((i) => i.category === c.value).length;
+            if (count === 0 && category !== c.value) return null;
+            return (
+              <Chip key={c.value} selected={category === c.value} onClick={() => setCategory(c.value)}>
+                {c.label} ({count})
+              </Chip>
+            );
+          })}
+        </div>
+
         {items === null ? (
           <div className="grid grid-cols-3 gap-3">
             {Array.from({ length: 9 }).map((_, i) => (
@@ -397,15 +404,17 @@ export default function ClosetPage() {
           </>
         ) : (
           <>
-            {/* 参考画像(2026-08-04 Kazさん指定)のワードローブ表示。
-                下のカードをタップすると中央に掛け替わり、写真タップで編集を開く。 */}
-            <WardrobeHero
-              item={filtered.find((i) => i.id === featuredId) ?? filtered[0] ?? null}
+            {/* 参考画像(2026-08-04 Kazさん指定)のワードローブ表示。左右にスワイプすると
+                服がレールの上を流れて選べる。下のカードをタップしても該当の服まで滑る。 */}
+            <WardrobeCarousel
+              items={filtered}
+              featuredId={activeFeaturedId}
+              onFeature={setFeaturedId}
               onEdit={(item) => setEditing(item)}
             />
             <ClosetCardGrid
               items={filtered}
-              featuredId={featuredId ?? filtered[0]?.id ?? null}
+              featuredId={activeFeaturedId}
               onSelect={(item) => setFeaturedId(item.id)}
               onToggleFavorite={handleToggleFavorite}
             />

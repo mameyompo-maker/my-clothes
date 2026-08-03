@@ -868,6 +868,44 @@ export function watchVotes(postId: string, onChange: (votes: Vote[]) => void): U
   });
 }
 
+// ---------- Outfit comments (2択へのコメント) ----------
+
+/**
+ * 2択投稿へのコメント(2026-08-04 Kazさん依頼)。全身写真の投稿と同じ PostComment を使う。
+ * stylePosts と違い commentCount は持たない: outfitPosts の update ルールは
+ * ['decidedCandidateIndex', 'deletedAt'] しか許しておらず、他人がカウンタを
+ * 増やせないため(2択は24時間で消えるので、件数の非正規化は不要と判断)。
+ */
+export async function addOutfitComment(postId: string, author: UserProfile, text: string): Promise<PostComment> {
+  const database = requireDb();
+  const id = crypto.randomUUID();
+  const comment: PostComment = {
+    id,
+    postId,
+    uid: author.uid,
+    name: author.name,
+    avatarUrl: author.avatarUrl ?? null,
+    text,
+    createdAt: Date.now(),
+  };
+  await setDoc(doc(database, "outfitPosts", postId, "comments", id), comment);
+
+  // 通知は投げっぱなし。postId は /post/ への導線にしか使われないので null にしておく
+  // (2択のコメントで /post/ に飛ばすと壊れる。castVote の通知と同じ扱い)。
+  void getOutfitPost(postId).then((post) => {
+    if (post && post.ownerUid !== author.uid) {
+      void sendNotification(post.ownerUid, author, "comment", null).catch(() => {});
+    }
+  });
+  return comment;
+}
+
+export function watchOutfitComments(postId: string, onChange: (comments: PostComment[]) => void): Unsubscribe {
+  const database = requireDb();
+  const q = query(collection(database, "outfitPosts", postId, "comments"), orderBy("createdAt", "asc"));
+  return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as PostComment)));
+}
+
 export function tallyVotes(votes: Vote[], candidateCount: number): number[] {
   const tally = new Array(candidateCount).fill(0);
   for (const vote of votes) {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
+  addOutfitComment,
   castVote,
   decideOutfitCandidate,
   getUserProfile,
@@ -13,6 +14,7 @@ import {
   markItemsWorn,
   setVoteReason,
   tallyVotes,
+  watchOutfitComments,
   watchOutfitPost,
   watchVotes,
 } from "@/lib/firestore";
@@ -21,14 +23,24 @@ import {
   type ClosetItem,
   type FacePattern,
   type OutfitPost,
+  type PostComment,
   type UserProfile,
   type Vote,
   type VoteReason,
 } from "@/types/models";
 import { OutfitCard, OutfitItemChips } from "@/components/OutfitCard";
 import { PricePanel } from "@/components/PricePanel";
-import { Avatar, IconButton, PrimaryButton, SecondaryButton, Skeleton, TopBar } from "@/components/ui";
-import { IconCamera, IconCheck, IconChevronLeft } from "@/components/icons";
+import {
+  Avatar,
+  IconButton,
+  PrimaryButton,
+  SecondaryButton,
+  Skeleton,
+  TopBar,
+  inputClass,
+  timeAgo,
+} from "@/components/ui";
+import { IconCamera, IconCheck, IconChevronLeft, IconSend } from "@/components/icons";
 
 export default function VoteDetailPage() {
   const { postId } = useParams<{ postId: string }>();
@@ -40,6 +52,9 @@ export default function VoteDetailPage() {
   const [items, setItems] = useState<ClosetItem[]>([]);
   const [faces, setFaces] = useState<FacePattern[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
+  const [comments, setComments] = useState<PostComment[]>([]);
+  const [commentText, setCommentText] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
   const [busy, setBusy] = useState(false);
   // 締め切り判定に使う現在時刻。描画中に Date.now() を読むと結果が安定しないので、
   // タイマー経由で state に落としてから使う。初期値0の間は「まだ締め切っていない」扱い。
@@ -70,6 +85,7 @@ export default function VoteDetailPage() {
   }, [postOwnerUid, user?.uid]);
 
   useEffect(() => watchVotes(postId, setVotes), [postId]);
+  useEffect(() => watchOutfitComments(postId, setComments), [postId]);
 
   if (!post) {
     return (
@@ -128,6 +144,19 @@ export default function VoteDetailPage() {
     }
   }
 
+  async function handleSendComment(e: React.FormEvent) {
+    e.preventDefault();
+    const body = commentText.trim();
+    if (!profile || !body || sendingComment) return;
+    setSendingComment(true);
+    try {
+      await addOutfitComment(postId, profile, body);
+      setCommentText("");
+    } finally {
+      setSendingComment(false);
+    }
+  }
+
   /** 候補ごとの理由スタンプの集計。「🎨 色がすき ×2」のように出す。 */
   function reasonSummary(index: number) {
     const counts: Partial<Record<VoteReason, number>> = {};
@@ -148,7 +177,7 @@ export default function VoteDetailPage() {
         }
       />
 
-      <div className="mx-auto max-w-lg px-4 pb-28 pt-4">
+      <div className="mx-auto max-w-lg px-4 pb-40 pt-4">
         <div className="mb-4 flex items-center gap-2.5">
           <Avatar src={owner?.avatarUrl} name={owner?.name ?? "友達"} size={38} ring={!isOwner} />
           <div className="min-w-0">
@@ -303,7 +332,56 @@ export default function VoteDetailPage() {
             </Link>
           </div>
         )}
+
+        {/* コメント(2026-08-04 追加)。投票だけでは伝えられない一言
+            (「Bならこの靴の方が合うよ」など)を残せるようにする。 */}
+        <section className="mt-6">
+          <h2 className="mb-3 text-sm font-bold">コメント {comments.length > 0 && `(${comments.length})`}</h2>
+          {comments.length === 0 ? (
+            <p className="py-4 text-center text-xs text-muted-foreground">
+              まだコメントはありません。ひとこと添えてあげましょう。
+            </p>
+          ) : (
+            <ul className="space-y-3.5">
+              {comments.map((c) => (
+                <li key={c.id} className="flex gap-2.5">
+                  <Avatar src={c.avatarUrl} name={c.name} size={32} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm leading-relaxed">
+                      <span className="font-bold">{c.name}</span>{" "}
+                      <span className="whitespace-pre-wrap break-words">{c.text}</span>
+                    </p>
+                    <span className="text-[11px] text-muted-foreground">{timeAgo(c.createdAt)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
+
+      <form
+        onSubmit={handleSendComment}
+        className="fixed bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom))] left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-3 pt-3 backdrop-blur-xl"
+      >
+        <div className="mx-auto flex max-w-lg items-center gap-2">
+          {profile && <Avatar src={profile.avatarUrl} name={profile.name} size={32} />}
+          <input
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            placeholder="コメントを追加…"
+            className={`${inputClass} flex-1 py-2.5`}
+          />
+          <button
+            type="submit"
+            disabled={!commentText.trim() || sendingComment}
+            aria-label="送信"
+            className="tappable flex h-10 w-10 items-center justify-center rounded-full bg-accent text-accent-foreground disabled:opacity-40"
+          >
+            <IconSend className="h-4 w-4" />
+          </button>
+        </div>
+      </form>
     </>
   );
 }
