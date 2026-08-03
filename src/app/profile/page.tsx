@@ -11,7 +11,6 @@ import {
   listUserStylePosts,
   MAX_FACE_PATTERNS,
   redeemInviteCode,
-  updateAvatar,
   updateUserProfile,
 } from "@/lib/firestore";
 import { compressImage } from "@/lib/image";
@@ -60,26 +59,10 @@ export default function ProfilePage() {
   const [faceSheet, setFaceSheet] = useState(false);
   const [favSheet, setFavSheet] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [avatarBusy, setAvatarBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const favoriteIds = profile?.favoritePostIds ?? [];
   const favoritePosts = (posts ?? []).filter((p) => favoriteIds.includes(p.id));
-
-  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
-    setAvatarBusy(true);
-    try {
-      const compressed = await compressImage(file);
-      await updateAvatar(user.uid, compressed);
-      await refreshProfile();
-    } finally {
-      setAvatarBusy(false);
-      if (avatarInputRef.current) avatarInputRef.current.value = "";
-    }
-  }
 
   async function toggleFavorite(postId: string) {
     if (!user) return;
@@ -209,30 +192,7 @@ export default function ProfilePage() {
       <div className="mx-auto max-w-lg pb-28">
         <div className="px-4 pt-5">
           <div className="mb-4 flex items-center gap-5">
-            {/* capture を付けないことで、カメラ起動ではなく端末の写真ライブラリが開く。 */}
-            <input
-              ref={avatarInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleAvatarChange}
-            />
-            <button
-              onClick={() => avatarInputRef.current?.click()}
-              disabled={avatarBusy}
-              className="tappable relative shrink-0"
-              aria-label="プロフィール画像を変更"
-            >
-              <Avatar src={profile.avatarUrl} name={profile.name} size={78} ring />
-              <span className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-accent text-accent-foreground">
-                <IconCamera className="h-3.5 w-3.5" />
-              </span>
-              {avatarBusy && (
-                <span className="absolute inset-0 flex items-center justify-center rounded-full bg-background/70 text-[10px] font-bold">
-                  更新中
-                </span>
-              )}
-            </button>
+            <Avatar src={profile.avatarUrl} name={profile.name} size={78} ring />
             <div className="grid flex-1 grid-cols-3 text-center">
               <Stat value={posts?.length ?? 0} label="投稿" />
               <Stat value={profile.followerCount ?? 0} label="フォロワー" />

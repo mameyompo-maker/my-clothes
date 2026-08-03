@@ -24,8 +24,13 @@ service cloud.firestore {
     //  2. フォロー時に相手の followerCount を1増減する
     match /users/{uid} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && me() == uid;
-      allow update: if isSignedIn() && me() == uid;
+      allow create: if isSignedIn() && me() == uid
+        && !request.resource.data.keys().hasAny(['plan']);
+
+      // 自分のドキュメントでも 'plan' だけは触らせない。触れると有料機能を
+      // 自己申告で開けてしまうため、決済確認後に Admin SDK からのみ書き込む。
+      allow update: if isSignedIn() && me() == uid
+        && !changedKeys().hasAny(['plan']);
 
       allow update: if isSignedIn() && me() != uid
         && changedKeys().hasOnly(['friendUids'])
@@ -78,8 +83,12 @@ service cloud.firestore {
 
     // outfitPosts(2択): 投稿者本人 or 共有された友達だけ読める。
     match /outfitPosts/{postId} {
-      allow read: if isSignedIn()
-        && (resource.data.ownerUid == me() || me() in resource.data.sharedWithUids);
+      function canReadOutfit() {
+        return resource.data.ownerUid == me() || me() in resource.data.sharedWithUids;
+      }
+
+      allow get: if isSignedIn() && (resource == null || canReadOutfit());
+      allow list: if isSignedIn() && canReadOutfit();
       allow create: if isSignedIn() && request.resource.data.ownerUid == me();
       // 「どっちを着たか」の記録だけは本人が後から書ける。合成結果は Admin SDK が書く。
       allow update: if isSignedIn() && resource.data.ownerUid == me()
@@ -108,7 +117,10 @@ service cloud.firestore {
           || isFriendOf(resource.data.ownerUid);
       }
 
-      allow read: if isSignedIn() && canReadPost();
+      // 消えた投稿を開いたときに「権限なし」ではなく「見つからない」にしたいので、
+      // get だけは resource == null を許す(chatThreads と同じ理由)。
+      allow get: if isSignedIn() && (resource == null || canReadPost());
+      allow list: if isSignedIn() && canReadPost();
       allow create: if isSignedIn() && request.resource.data.ownerUid == me();
       allow delete: if isSignedIn() && resource.data.ownerUid == me();
 
@@ -147,7 +159,12 @@ service cloud.firestore {
 
     // chatThreads(DM): 参加者だけ。E2E暗号化はしない方針(Instagram の DM 相当)。
     match /chatThreads/{tid} {
-      allow read: if isSignedIn() && me() in resource.data.memberUids;
+      // 存在しないドキュメントを get したとき resource は null になる。そこで
+      // resource.data を無条件に触ると評価エラーになり「権限なし」として拒否される。
+      // ensureChatThread は作成前に必ず存在確認の get をするため、これを許さないと
+      // スレッドが1つも作れず、DMが丸ごと使えなくなる(実際にそうなっていた)。
+      allow get: if isSignedIn() && (resource == null || me() in resource.data.memberUids);
+      allow list: if isSignedIn() && me() in resource.data.memberUids;
       allow create: if isSignedIn()
         && me() in request.resource.data.memberUids
         && request.resource.data.memberUids.size() == 2;

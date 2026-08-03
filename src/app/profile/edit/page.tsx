@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { updateUserProfile } from "@/lib/firestore";
+import { updateAvatar, updateUserProfile } from "@/lib/firestore";
+import { compressImage } from "@/lib/image";
 import {
   BODY_TYPES,
   PERSONAL_COLORS,
@@ -12,8 +13,8 @@ import {
   type PersonalColor,
   type StyleGenre,
 } from "@/types/models";
-import { ActionBar, Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
-import { IconChevronLeft } from "@/components/icons";
+import { ActionBar, Avatar, Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
+import { IconCamera, IconChevronLeft } from "@/components/icons";
 
 export default function EditProfilePage() {
   const { user, profile, refreshProfile } = useAuth();
@@ -38,6 +39,25 @@ export default function EditProfilePage() {
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    setAvatarBusy(true);
+    setError("");
+    try {
+      const compressed = await compressImage(file);
+      await updateAvatar(user.uid, compressed);
+      await refreshProfile();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "画像の変更に失敗しました。");
+    } finally {
+      setAvatarBusy(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }
 
   function toggleGenre(value: StyleGenre) {
     setFavoriteGenres((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
@@ -91,6 +111,41 @@ export default function EditProfilePage() {
       />
 
       <div className="mx-auto max-w-lg px-4 pb-32 pt-4">
+        {/* capture を付けないのが要点。付けるとカメラが直接起動してしまい、
+            端末に保存済みの写真から選べなくなる。 */}
+        <input
+          ref={avatarInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleAvatarChange}
+        />
+        <div className="mb-6 flex flex-col items-center gap-3">
+          <button
+            onClick={() => avatarInputRef.current?.click()}
+            disabled={avatarBusy}
+            className="tappable relative"
+            aria-label="プロフィール画像を変更"
+          >
+            <Avatar src={profile.avatarUrl} name={profile.name} size={92} ring />
+            <span className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-accent text-accent-foreground">
+              <IconCamera className="h-4 w-4" />
+            </span>
+            {avatarBusy && (
+              <span className="absolute inset-0 flex items-center justify-center rounded-full bg-background/75 text-[11px] font-bold">
+                更新中
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => avatarInputRef.current?.click()}
+            disabled={avatarBusy}
+            className="tappable text-xs font-bold text-accent disabled:opacity-50"
+          >
+            プロフィール画像を変更
+          </button>
+        </div>
+
         <Field label="名前">
           <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
         </Field>

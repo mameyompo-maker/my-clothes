@@ -8,6 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   createOutfitPost,
   getFriendProfiles,
+  hasCreatedOutfitToday,
   listClosetItems,
   listFacePatterns,
   uploadImage,
@@ -19,6 +20,7 @@ import {
   BUILD_MODES,
   CATEGORY_ORDER,
   CLOSET_CATEGORIES,
+  isPremium,
   type BuildMode,
   type ClosetCategory,
   type ClosetItem,
@@ -39,7 +41,7 @@ import {
   TopBar,
   inputClass,
 } from "@/components/ui";
-import { IconCamera, IconChevronLeft, IconCloset, IconSparkles } from "@/components/icons";
+import { IconCamera, IconCheck, IconChevronLeft, IconCloset, IconSparkles } from "@/components/icons";
 
 type Slot = 0 | 1;
 type Step = "mode" | "build" | "finish";
@@ -66,6 +68,9 @@ export default function CreatePostPage() {
   const [faces, setFaces] = useState<FacePattern[]>([]);
   const [friends, setFriends] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [alreadyToday, setAlreadyToday] = useState(false);
+
+  const premium = isPremium(profile);
 
   const [step, setStep] = useState<Step>("mode");
   const [buildMode, setBuildMode] = useState<BuildMode>("topDown");
@@ -88,12 +93,14 @@ export default function CreatePostPage() {
       listClosetItems(user.uid),
       listFacePatterns(user.uid),
       getFriendProfiles(profile.friendUids),
+      hasCreatedOutfitToday(user.uid),
     ])
-      .then(([items, f, fr]) => {
+      .then(([items, f, fr, madeToday]) => {
         setClosetItems(items);
         setFaces(f);
         setFriends(fr);
         setSharedWith(new Set(fr.map((x) => x.uid)));
+        setAlreadyToday(madeToday);
       })
       .finally(() => setLoading(false));
   }, [user, profile]);
@@ -234,6 +241,32 @@ export default function CreatePostPage() {
     );
   }
 
+  // 2択は1日1回まで。朝に決め切る運用に寄せるための制限。
+  if (alreadyToday) {
+    return (
+      <>
+        <TopBar title="コーデを作る" />
+        <div className="mx-auto max-w-lg px-4 pb-28 pt-8">
+          <EmptyState
+            icon={<IconCheck className="h-10 w-10" />}
+            title="今日の2択はもう作りました"
+            description="2択を作れるのは1日1回です。作った2択の結果を見るか、着たコーデを写真で残しましょう。また明日どうぞ。"
+            action={
+              <div className="flex w-full flex-col gap-2">
+                <Link href="/vote">
+                  <PrimaryButton>今日の2択を見る</PrimaryButton>
+                </Link>
+                <Link href="/post/new">
+                  <SecondaryButton>全身写真を投稿する</SecondaryButton>
+                </Link>
+              </div>
+            }
+          />
+        </div>
+      </>
+    );
+  }
+
   // ---------------- Step 1: 決め方を選ぶ ----------------
   if (step === "mode") {
     return (
@@ -262,23 +295,38 @@ export default function CreatePostPage() {
               </button>
             ))}
 
-            <button
-              onClick={() => {
-                setBuildMode("topDown");
-                applySuggestion(0);
-                applySuggestion(1);
-                setStep("finish");
-              }}
-              className="tappable flex w-full items-center gap-3 rounded-3xl border border-accent/40 bg-accent-soft p-5 text-left"
-            >
-              <IconSparkles className="h-6 w-6 shrink-0 text-accent" />
-              <div>
-                <span className="block text-base font-bold text-accent">おまかせで2択を作る</span>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  季節と好みと着ていない期間から、2パターン自動で組みます
-                </p>
-              </div>
-            </button>
+            {premium ? (
+              <button
+                onClick={() => {
+                  setBuildMode("topDown");
+                  applySuggestion(0);
+                  applySuggestion(1);
+                  setStep("finish");
+                }}
+                className="tappable flex w-full items-center gap-3 rounded-3xl border border-accent/40 bg-accent-soft p-5 text-left"
+              >
+                <IconSparkles className="h-6 w-6 shrink-0 text-accent" />
+                <div>
+                  <span className="block text-base font-bold text-accent">おまかせで2択を作る</span>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    季節と好みと着ていない期間から、2パターン自動で組みます
+                  </p>
+                </div>
+              </button>
+            ) : (
+              <Link
+                href="/upgrade"
+                className="tappable flex w-full items-center gap-3 rounded-3xl border border-border bg-surface p-5 text-left"
+              >
+                <IconSparkles className="h-6 w-6 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <span className="block text-base font-bold">おまかせで2択を作る</span>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    自動で組む機能はプレミアム向けです。上の2つは無料で使えます
+                  </p>
+                </div>
+              </Link>
+            )}
           </div>
         </div>
       </>
@@ -333,12 +381,18 @@ export default function CreatePostPage() {
           <div className="mb-4 min-h-[54px] rounded-2xl border border-border bg-surface p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[11px] font-semibold text-muted-foreground">選んだアイテム</span>
-              <button
-                onClick={() => applySuggestion(slot)}
-                className="flex items-center gap-1 text-[11px] font-bold text-accent"
-              >
-                <IconSparkles className="h-3.5 w-3.5" /> おまかせ
-              </button>
+              {premium ? (
+                <button
+                  onClick={() => applySuggestion(slot)}
+                  className="flex items-center gap-1 text-[11px] font-bold text-accent"
+                >
+                  <IconSparkles className="h-3.5 w-3.5" /> おまかせ
+                </button>
+              ) : (
+                <Link href="/upgrade" className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground">
+                  <IconSparkles className="h-3.5 w-3.5" /> おまかせ
+                </Link>
+              )}
             </div>
             {selectedItems(slot).length === 0 ? (
               <p className="text-xs text-muted-foreground">
@@ -362,12 +416,19 @@ export default function CreatePostPage() {
           {buildMode === "hero" && !slotReady(slot) ? (
             <>
               <p className="mb-3 text-xs font-semibold text-muted-foreground">
-                主役を1着えらぶと、残りは自動で提案します
+                {premium
+                  ? "主役を1着えらぶと、残りは自動で提案します"
+                  : "今日いちばん着たい1着をえらんでください"}
               </p>
               <HangerRail
                 items={closetItems}
                 selectedIds={Object.values(draft.itemIdsByCategory) as string[]}
-                onSelect={(item) => applySuggestion(slot, item)}
+                onSelect={(item) => {
+                  // 残りを自動で埋めるのはプレミアム機能。無料では主役だけ置いて、
+                  // あとはカテゴリー別に自分で選んでもらう。
+                  if (premium) applySuggestion(slot, item);
+                  else toggleItem(item);
+                }}
               />
             </>
           ) : (

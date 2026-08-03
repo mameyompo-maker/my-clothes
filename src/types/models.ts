@@ -133,9 +133,24 @@ export interface UserProfile {
   recommendMinuteOfDay?: number | null;
   /** プロフィール上部に大きく出すお気に入りコーデ(StylePost の id、最大3件)。 */
   favoritePostIds?: string[];
+  /**
+   * 課金プラン。**クライアントからは書き換えられない**(firestore.rules で 'plan' の
+   * 変更を禁止している)。決済確認後に Admin SDK 側から書き込む前提。
+   * 自己申告で有料機能が開けてしまわないようにするため。
+   */
+  plan?: PlanTier;
+}
+
+export type PlanTier = "free" | "premium";
+
+export function isPremium(profile: UserProfile | null): boolean {
+  return profile?.plan === "premium";
 }
 
 export const MAX_FAVORITE_POSTS = 3;
+
+/** 2択を作れる回数は1日1回。迷う時間を減らすアプリなので、朝に1回決め切る運用に寄せる。 */
+export const OUTFIT_POSTS_PER_DAY = 1;
 
 // ---------------------------------------------------------------------------
 // クローゼット

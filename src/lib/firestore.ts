@@ -510,6 +510,20 @@ export function watchMyPosts(myUid: string, onChange: (posts: OutfitPost[]) => v
   });
 }
 
+/**
+ * 今日ぶんの2択を既に作っているか。
+ *
+ * 判定はクライアント側だけで、セキュリティルールでは縛っていない。ルールは
+ * 「同じ人の今日の投稿件数」を数えられないため。厳密に止めたくなったら
+ * Cloud Functions 側で作成を受け付ける形に変える必要がある。
+ */
+export async function hasCreatedOutfitToday(myUid: string): Promise<boolean> {
+  const posts = await listMyOutfitPosts(myUid);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return posts.some((p) => p.createdAt >= startOfToday.getTime());
+}
+
 export async function listMyOutfitPosts(myUid: string): Promise<OutfitPost[]> {
   const database = requireDb();
   const q = query(collection(database, "outfitPosts"), where("ownerUid", "==", myUid));
