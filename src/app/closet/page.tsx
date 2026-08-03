@@ -44,6 +44,7 @@ export default function ClosetPage() {
   const [genre, setGenre] = useState<StyleGenre | null>(null);
   const [season, setSeason] = useState<Season | null>(null);
   const [editing, setEditing] = useState<ClosetItem | null>(null);
+  const [seedSheetOpen, setSeedSheetOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -145,7 +146,7 @@ export default function ClosetPage() {
           ))}
         </div>
 
-        <div className="no-scrollbar -mx-4 mb-6 flex gap-2 overflow-x-auto px-4">
+        <div className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4">
           {STYLE_GENRES.map((g) => (
             <Chip
               key={g.value}
@@ -156,6 +157,18 @@ export default function ClosetPage() {
               {g.label}
             </Chip>
           ))}
+        </div>
+
+        {/* 見本の服はいつでも入れ直せる。最初の一回きりにすると、
+            消してしまった人やメンズ/レディースを選び直したい人が戻れなくなる。 */}
+        <div className="mb-6 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setSeedSheetOpen(true)}
+            className="tappable text-[11px] font-bold text-accent"
+          >
+            見本の服を入れる
+          </button>
         </div>
 
         {items === null ? (
@@ -199,6 +212,24 @@ export default function ClosetPage() {
 
       <BottomSheet open={Boolean(editing)} onClose={() => setEditing(null)} title="アイテムの情報">
         {editing && <EditItemForm item={editing} onSave={handleSaveEdit} onDelete={handleDelete} />}
+      </BottomSheet>
+
+      <BottomSheet open={seedSheetOpen} onClose={() => setSeedSheetOpen(false)} title="見本の服を入れる">
+        {user && (
+          <div className="pb-4">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              実際の服の写真をクローゼットに入れます。自分で登録した服はそのまま残り、
+              前に入れた見本だけが選んだ内容に置き換わります。
+            </p>
+            <SeedClosetPicker
+              uid={user.uid}
+              onDone={async () => {
+                await reloadItems();
+                setSeedSheetOpen(false);
+              }}
+            />
+          </div>
+        )}
       </BottomSheet>
     </>
   );

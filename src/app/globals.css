@@ -2,30 +2,34 @@
 
 /* ---------------------------------------------------------------------------
    デザイントークン
-   10〜30代女性向け。Instagram / BeReal / WEAR を参照した、白基調 + 一色アクセント。
-   色数を絞って写真(服)を主役にするのが狙い。
+   10〜30代女性向け。白基調 + 一色アクセントで、色数を絞って写真(服)を主役にする。
+
+   アクセントは青(#3b6bff)。以前はピンク(#ff3b6b)だったが、Instagram と
+   見分けがつかないという指摘を受けて青系に振った。**構造・余白・角丸は変えていない。
+   変えたのは色だけ**なので、色を戻したくなったらこのブロックだけ差し替えれば済む。
+   地色や罫線もわずかに寒色へ寄せてあり、アクセントだけ青くして浮かないようにしている。
 --------------------------------------------------------------------------- */
 
 :root {
-  --background: #fdfcfb;
-  --foreground: #16141a;
+  --background: #fbfcfd;
+  --foreground: #14161a;
   --surface: #ffffff;
-  --surface-muted: #f4f1ee;
-  --surface-strong: #eae5e0;
+  --surface-muted: #eef1f5;
+  --surface-strong: #e0e5ec;
 
-  --accent: #ff3b6b;
-  --accent-soft: #ffe6ed;
+  --accent: #3b6bff;
+  --accent-soft: #e6edff;
   --accent-foreground: #ffffff;
 
-  --muted-foreground: #79737d;
-  --border: #ebe6e2;
-  --border-strong: #ddd6d0;
+  --muted-foreground: #737a85;
+  --border: #e4e8ee;
+  --border-strong: #d0d7e0;
 
   --success: #12b981;
   --danger: #ef4444;
 
   /* ストーリーリングやハイライトに使うグラデーション */
-  --gradient-brand: linear-gradient(135deg, #ff8a3d 0%, #ff3b6b 50%, #a24bff 100%);
+  --gradient-brand: linear-gradient(135deg, #3dc8ff 0%, #3b6bff 50%, #7b4bff 100%);
 
   --radius-card: 20px;
   --radius-pill: 999px;
@@ -34,28 +38,28 @@
      タブに隠れて押せなくなる(実際にそれで投稿ボタンが押せなくなっていた)。 */
   --nav-h: 58px;
 
-  --shadow-card: 0 1px 2px rgba(22, 20, 26, 0.04), 0 8px 24px rgba(22, 20, 26, 0.06);
-  --shadow-float: 0 8px 30px rgba(255, 59, 107, 0.28);
+  --shadow-card: 0 1px 2px rgba(20, 22, 26, 0.04), 0 8px 24px rgba(20, 22, 26, 0.06);
+  --shadow-float: 0 8px 30px rgba(59, 107, 255, 0.28);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0c0b0e;
-    --foreground: #f6f4f7;
-    --surface: #16151a;
-    --surface-muted: #1f1d24;
-    --surface-strong: #2a2731;
+    --background: #0b0d12;
+    --foreground: #f4f6f8;
+    --surface: #14171d;
+    --surface-muted: #1d212a;
+    --surface-strong: #272c37;
 
-    --accent: #ff4d78;
-    --accent-soft: #35141f;
+    --accent: #5b83ff;
+    --accent-soft: #16223f;
     --accent-foreground: #ffffff;
 
-    --muted-foreground: #9d96a6;
-    --border: #26232c;
-    --border-strong: #35313d;
+    --muted-foreground: #969ead;
+    --border: #232833;
+    --border-strong: #323846;
 
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
-    --shadow-float: 0 8px 30px rgba(255, 77, 120, 0.24);
+    --shadow-float: 0 8px 30px rgba(91, 131, 255, 0.24);
   }
 }
 

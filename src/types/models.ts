@@ -219,7 +219,18 @@ export interface OutfitPost {
   /** 実際に着ることにした候補。カレンダーに出す「その日の服」はこれ。 */
   decidedCandidateIndex?: number | null;
   buildMode?: BuildMode;
+  /**
+   * 取り消した時刻。null なら生きている投稿。
+   *
+   * 物理削除ではなく印を付けるだけにしているのは、「今日なん回取り消したか」を
+   * 数える必要があるため(無料プランは1日1回まで)。ドキュメントごと消すと
+   * 数える対象が無くなり、何度でも作り直せてしまう。
+   */
+  deletedAt?: number | null;
 }
+
+/** 無料プランが1日に取り消せる回数。プレミアムは無制限。 */
+export const FREE_UNDO_PER_DAY = 1;
 
 export interface Vote {
   id: string;

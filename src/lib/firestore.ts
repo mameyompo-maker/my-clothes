@@ -491,9 +491,20 @@ export async function createOutfitPost(
     expiresAt: now + POST_LIFETIME_MS,
     decidedCandidateIndex: null,
     buildMode: buildMode ?? "topDown",
+    deletedAt: null,
   };
   await setDoc(doc(database, "outfitPosts", id), post);
   return post;
+}
+
+/**
+ * 今日の2択を取り消す。物理削除ではなく deletedAt を立てるだけ。
+ * 取り消した回数を数えられなくなると無料プランの上限を守れないため
+ * (詳しくは OutfitPost.deletedAt のコメント)。
+ */
+export async function undoOutfitPost(postId: string): Promise<void> {
+  const database = requireDb();
+  await updateDoc(doc(database, "outfitPosts", postId), { deletedAt: Date.now() });
 }
 
 export async function getOutfitPost(postId: string): Promise<OutfitPost | null> {
@@ -515,7 +526,7 @@ export function watchFeedPosts(myUid: string, onChange: (posts: OutfitPost[]) =>
     const now = Date.now();
     const posts = snap.docs
       .map((d) => d.data() as OutfitPost)
-      .filter((p) => p.expiresAt > now)
+      .filter((p) => p.expiresAt > now && !p.deletedAt)
       .sort((a, b) => b.createdAt - a.createdAt);
     onChange(posts);
   });
@@ -525,7 +536,7 @@ export function watchMyPosts(myUid: string, onChange: (posts: OutfitPost[]) => v
   const database = requireDb();
   const q = query(collection(database, "outfitPosts"), where("ownerUid", "==", myUid), orderBy("createdAt", "desc"));
   return onSnapshot(q, (snap) => {
-    onChange(snap.docs.map((d) => d.data() as OutfitPost));
+    onChange(snap.docs.map((d) => d.data() as OutfitPost).filter((p) => !p.deletedAt));
   });
 }
 
@@ -537,17 +548,40 @@ export function watchMyPosts(myUid: string, onChange: (posts: OutfitPost[]) => v
  * Cloud Functions 側で作成を受け付ける形に変える必要がある。
  */
 export async function hasCreatedOutfitToday(myUid: string): Promise<boolean> {
-  const posts = await listMyOutfitPosts(myUid);
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  return posts.some((p) => p.createdAt >= startOfToday.getTime());
+  const posts = await listMyOutfitPostsRaw(myUid);
+  return posts.some((p) => p.createdAt >= startOfToday() && !p.deletedAt);
 }
 
-export async function listMyOutfitPosts(myUid: string): Promise<OutfitPost[]> {
+/** 今日ぶんの2択を取り消した回数。無料プランの上限判定に使う。 */
+export async function countOutfitUndosToday(myUid: string): Promise<number> {
+  const posts = await listMyOutfitPostsRaw(myUid);
+  return posts.filter((p) => p.deletedAt && p.deletedAt >= startOfToday()).length;
+}
+
+/** 今日まだ生きている自分の2択。取り消しの対象を探すために使う。 */
+export async function findTodaysOutfitPost(myUid: string): Promise<OutfitPost | null> {
+  const posts = await listMyOutfitPostsRaw(myUid);
+  return posts.find((p) => p.createdAt >= startOfToday() && !p.deletedAt) ?? null;
+}
+
+function startOfToday(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** 取り消し済みも含む生の一覧。回数を数える用途にだけ使うこと。 */
+async function listMyOutfitPostsRaw(myUid: string): Promise<OutfitPost[]> {
   const database = requireDb();
   const q = query(collection(database, "outfitPosts"), where("ownerUid", "==", myUid));
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data() as OutfitPost).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** 画面に出す自分の2択。取り消したものは除く。 */
+export async function listMyOutfitPosts(myUid: string): Promise<OutfitPost[]> {
+  const posts = await listMyOutfitPostsRaw(myUid);
+  return posts.filter((p) => !p.deletedAt);
 }
 
 // ---------- Votes ----------

@@ -107,7 +107,7 @@ function UpgradeContent() {
               <IconSparkles className="mx-auto mb-2 h-8 w-8 text-accent" />
               <p className="text-base font-bold text-accent">プレミアムをご利用中です</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                おまかせ提案がいつでも使えます。ありがとうございます。
+                おまかせ提案と、2択の取り消しが回数制限なく使えます。ありがとうございます。
               </p>
             </div>
             <SecondaryButton onClick={openPortal} disabled={busy}>
@@ -130,6 +130,7 @@ function UpgradeContent() {
                 <Benefit>おまかせで2択を自動生成する</Benefit>
                 <Benefit>主役の1着から残りを自動で組む</Benefit>
                 <Benefit>季節・好みのジャンル・着ていない期間をふまえた提案</Benefit>
+                <Benefit>今日の2択を何回でも取り消してやり直せる</Benefit>
               </ul>
             </section>
 
@@ -137,6 +138,7 @@ function UpgradeContent() {
               <h2 className="mb-3 text-sm font-bold">無料のままできること</h2>
               <ul className="space-y-2.5">
                 <Benefit>2択を作って友達に選んでもらう(1日1回)</Benefit>
+                <Benefit>今日の2択の取り消し(1日1回まで)</Benefit>
                 <Benefit>AIによる着用イメージの生成</Benefit>
                 <Benefit>クローゼットの登録・タグ付け・絞り込み</Benefit>
                 <Benefit>全身写真の投稿、いいね、コメント、フォロー、DM</Benefit>

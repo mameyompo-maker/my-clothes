@@ -6,11 +6,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
+  countOutfitUndosToday,
   createOutfitPost,
+  findTodaysOutfitPost,
   getFriendProfiles,
   hasCreatedOutfitToday,
   listClosetItems,
   listFacePatterns,
+  undoOutfitPost,
   uploadImage,
 } from "@/lib/firestore";
 import { composeOutfitImage } from "@/lib/functions";
@@ -20,6 +23,7 @@ import {
   BUILD_MODES,
   CATEGORY_ORDER,
   CLOSET_CATEGORIES,
+  FREE_UNDO_PER_DAY,
   isPremium,
   type BuildMode,
   type ClosetCategory,
@@ -69,6 +73,9 @@ export default function CreatePostPage() {
   const [friends, setFriends] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [alreadyToday, setAlreadyToday] = useState(false);
+  // 今日すでに取り消した回数。無料プランは FREE_UNDO_PER_DAY 回まで。
+  const [undosToday, setUndosToday] = useState(0);
+  const [undoing, setUndoing] = useState(false);
 
   const premium = isPremium(profile);
 
@@ -94,16 +101,40 @@ export default function CreatePostPage() {
       listFacePatterns(user.uid),
       getFriendProfiles(profile.friendUids),
       hasCreatedOutfitToday(user.uid),
+      countOutfitUndosToday(user.uid),
     ])
-      .then(([items, f, fr, madeToday]) => {
+      .then(([items, f, fr, madeToday, undos]) => {
         setClosetItems(items);
         setFaces(f);
         setFriends(fr);
         setSharedWith(new Set(fr.map((x) => x.uid)));
         setAlreadyToday(madeToday);
+        setUndosToday(undos);
       })
       .finally(() => setLoading(false));
   }, [user, profile]);
+
+  /** 今日の2択を取り消して、もう一度作れる状態に戻す。 */
+  async function handleUndoToday() {
+    if (!user) return;
+    setUndoing(true);
+    setError("");
+    try {
+      const post = await findTodaysOutfitPost(user.uid);
+      if (!post) {
+        // 別の端末で先に取り消されていた場合。画面を実態に合わせるだけでよい。
+        setAlreadyToday(false);
+        return;
+      }
+      await undoOutfitPost(post.id);
+      setUndosToday((n) => n + 1);
+      setAlreadyToday(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "取り消しに失敗しました。");
+    } finally {
+      setUndoing(false);
+    }
+  }
 
   const draft = drafts[slot];
 
@@ -242,7 +273,9 @@ export default function CreatePostPage() {
   }
 
   // 2択は1日1回まで。朝に決め切る運用に寄せるための制限。
+  // ただし作り直したくなることはあるので、取り消しを用意している(無料は1日1回まで)。
   if (alreadyToday) {
+    const canUndo = premium || undosToday < FREE_UNDO_PER_DAY;
     return (
       <>
         <TopBar title="コーデを作る" />
@@ -262,6 +295,40 @@ export default function CreatePostPage() {
               </div>
             }
           />
+
+          <div className="mt-4 rounded-3xl border border-border bg-surface p-4">
+            <p className="text-sm font-bold">作り直したいときは</p>
+            {canUndo ? (
+              <>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  今日の2択を取り消すと、もう一度作れます。
+                  {premium
+                    ? "プレミアムなので何回でも取り消せます。"
+                    : `無料プランで取り消せるのは1日${FREE_UNDO_PER_DAY}回までです。`}
+                  <br />
+                  取り消すと、友達がくれた投票も一緒に消えます。
+                </p>
+                <div className="mt-3">
+                  <SecondaryButton onClick={handleUndoToday} disabled={undoing}>
+                    {undoing ? "取り消しています…" : "今日の2択を取り消してやり直す"}
+                  </SecondaryButton>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  今日ぶんの取り消しは使い切りました。明日また取り消せます。
+                  プレミアムなら、何回でも取り消してやり直せます。
+                </p>
+                <div className="mt-3">
+                  <Link href="/upgrade">
+                    <SecondaryButton>プレミアムを見る</SecondaryButton>
+                  </Link>
+                </div>
+              </>
+            )}
+            {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+          </div>
         </div>
       </>
     );

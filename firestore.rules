@@ -90,9 +90,12 @@ service cloud.firestore {
       allow get: if isSignedIn() && (resource == null || canReadOutfit());
       allow list: if isSignedIn() && canReadOutfit();
       allow create: if isSignedIn() && request.resource.data.ownerUid == me();
-      // 「どっちを着たか」の記録だけは本人が後から書ける。合成結果は Admin SDK が書く。
+      // 「どっちを着たか」の記録と、取り消しの印だけは本人が後から書ける。
+      // 合成結果は Admin SDK が書く。
+      // deletedAt は物理削除の代わり。1日の取り消し回数を数える必要があるため、
+      // ドキュメントを消さずに印だけ付ける(消すと数える対象が無くなる)。
       allow update: if isSignedIn() && resource.data.ownerUid == me()
-        && changedKeys().hasOnly(['decidedCandidateIndex']);
+        && changedKeys().hasOnly(['decidedCandidateIndex', 'deletedAt']);
       allow delete: if isSignedIn() && resource.data.ownerUid == me();
 
       match /votes/{voterUid} {
