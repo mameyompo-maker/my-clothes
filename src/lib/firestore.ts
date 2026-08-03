@@ -2,6 +2,7 @@ import {
   arrayRemove,
   arrayUnion,
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
@@ -1003,6 +1004,41 @@ export async function toggleLike(postId: string, uid: string, actor?: UserProfil
     });
   }
   return true;
+}
+
+
+/**
+ * 投稿の保存(ブックマーク)。
+ *
+ * likes と同じくドキュメントIDを uid に固定しているので、1人1保存が構造的に保証される。
+ * ファッションでは「いいね」より「保存」のほうが強い意図を表すので、
+ * 後々のレコメンドの材料としてはこちらのほうが価値が高い。
+ */
+export async function toggleSave(postId: string, uid: string): Promise<boolean> {
+  const database = requireDb();
+  const ref_ = doc(database, "stylePosts", postId, "saves", uid);
+  if ((await getDoc(ref_)).exists()) {
+    await deleteDoc(ref_);
+    return false;
+  }
+  await setDoc(ref_, { id: uid, postId, uid, createdAt: Date.now() });
+  return true;
+}
+
+export async function hasSaved(postId: string, uid: string): Promise<boolean> {
+  const database = requireDb();
+  return (await getDoc(doc(database, "stylePosts", postId, "saves", uid))).exists();
+}
+
+/** 保存した投稿の一覧。collectionGroup で自分の保存だけを横断的に集める。 */
+export async function listSavedPosts(uid: string): Promise<StylePost[]> {
+  const database = requireDb();
+  const snap = await getDocs(
+    query(collectionGroup(database, "saves"), where("uid", "==", uid), limit(100))
+  );
+  const postIds = snap.docs.map((d) => (d.data() as { postId: string }).postId);
+  const posts = await getStylePostsByIds(postIds);
+  return posts.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function hasLiked(postId: string, uid: string): Promise<boolean> {

@@ -195,6 +195,15 @@ service cloud.firestore {
         allow update: if false;
       }
 
+      // saves: likes と同じ形。ID を uid に固定して1人1保存にする。
+      // 誰が保存したかは本人だけが分かればよいので、読めるのは自分の行だけ。
+      match /saves/{saveUid} {
+        allow read: if isSignedIn() && me() == saveUid;
+        allow create: if isSignedIn() && me() == saveUid && request.resource.data.uid == me();
+        allow delete: if isSignedIn() && me() == saveUid;
+        allow update: if false;
+      }
+
       match /comments/{commentId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn() && request.resource.data.uid == me();

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { hasLiked, toggleLike } from "@/lib/firestore";
+import { hasLiked, hasSaved, toggleLike, toggleSave } from "@/lib/firestore";
 import { useAuth } from "./AuthProvider";
 import { buildOutboundUrl, SEASONS, STYLE_GENRES, type StylePost } from "@/types/models";
 import { saveImage, sharePost } from "@/lib/share";
@@ -21,10 +21,12 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
   const [showTags, setShowTags] = useState(false);
   const [burst, setBurst] = useState(false);
   const [shareNote, setShareNote] = useState("");
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (!myUid) return;
     hasLiked(post.id, myUid).then(setLiked);
+    hasSaved(post.id, myUid).then(setSaved);
   }, [post.id, myUid]);
 
   async function onToggleLike() {
@@ -135,6 +137,22 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
         </Link>
 
         <div className="ml-auto flex items-center gap-3">
+          <button
+            type="button"
+            onClick={async () => {
+              if (!myUid) return;
+              const next = !saved;
+              setSaved(next); // 先に反映して待たせない
+              try {
+                await toggleSave(post.id, myUid);
+              } catch {
+                setSaved(!next);
+              }
+            }}
+            className="tappable text-xs font-bold text-accent"
+          >
+            {saved ? "保存済み" : "保存"}
+          </button>
           <button
             type="button"
             onClick={async () => {
