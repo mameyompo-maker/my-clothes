@@ -95,7 +95,7 @@ export default function ChatThreadPage() {
 
       <form
         onSubmit={handleSend}
-        className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-3 backdrop-blur-xl"
+        className="fixed bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom))] left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-3 pt-3 backdrop-blur-xl"
       >
         <div className="mx-auto flex max-w-lg items-center gap-2">
           <input

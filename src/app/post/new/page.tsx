@@ -16,7 +16,7 @@ import {
   type Season,
   type StyleGenre,
 } from "@/types/models";
-import { BottomSheet, Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
+import { ActionBar, BottomSheet, Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
 import { IconCamera, IconChevronLeft, IconTag, IconX } from "@/components/icons";
 
 export default function NewStylePostPage() {
@@ -268,13 +268,11 @@ function NewStylePostContent() {
         {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl">
-        <div className="mx-auto max-w-lg">
-          <PrimaryButton onClick={handleSubmit} disabled={!file || saving}>
-            {saving ? "投稿中…" : "投稿する"}
-          </PrimaryButton>
-        </div>
-      </div>
+      <ActionBar>
+        <PrimaryButton onClick={handleSubmit} disabled={!file || saving}>
+          {saving ? "投稿中…" : "投稿する"}
+        </PrimaryButton>
+      </ActionBar>
 
       <BottomSheet
         open={Boolean(pendingPoint)}

@@ -8,6 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   ensureChatThread,
   followUser,
+  getStylePostsByIds,
   getUserProfile,
   isFollowing,
   listPublicStylePostsOf,
@@ -25,15 +26,22 @@ export default function UserProfilePage() {
   const [target, setTarget] = useState<UserProfile | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [posts, setPosts] = useState<StylePost[] | null>(null);
+  const [favorites, setFavorites] = useState<StylePost[]>([]);
   const [following, setFollowing] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
 
   const isMe = user?.uid === uid;
 
   useEffect(() => {
-    getUserProfile(uid).then((p) => {
+    getUserProfile(uid).then(async (p) => {
       setTarget(p);
-      if (!p) setNotFound(true);
+      if (!p) {
+        setNotFound(true);
+        return;
+      }
+      // 非公開の投稿がお気に入りに入っていることもあるので、読めなかったものは落とす。
+      const favs = await getStylePostsByIds(p.favoritePostIds ?? []);
+      setFavorites(favs.filter((f) => f.visibility === "public"));
     });
     listPublicStylePostsOf(uid).then(setPosts);
   }, [uid]);
@@ -137,6 +145,24 @@ export default function UserProfilePage() {
                   <Tag key={g}>#{g}</Tag>
                 ))}
               </div>
+
+              {favorites.length > 0 && (
+                <section className="mb-5">
+                  <h2 className="mb-2 text-sm font-bold">お気に入りのコーデ</h2>
+                  <div className="grid grid-cols-3 gap-2">
+                    {favorites.map((p) => (
+                      <Link key={p.id} href={`/post/${p.id}`} className="tappable">
+                        <div
+                          className="relative overflow-hidden rounded-2xl bg-surface-muted"
+                          style={{ aspectRatio: "3 / 4" }}
+                        >
+                          <Image src={p.imageUrl} alt={p.caption || "お気に入り"} fill className="object-cover" unoptimized />
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               <div className="mb-6 flex gap-2">
                 <div className="flex-1">

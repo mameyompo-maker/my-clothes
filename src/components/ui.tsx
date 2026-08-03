@@ -241,6 +241,21 @@ export function BottomSheet({
   );
 }
 
+/**
+ * 画面下に固定する操作バー(「投稿する」など)。
+ *
+ * 下タブ(BottomNav)は z-40 で画面最下部に居座るので、単に bottom-0 に置くと
+ * その裏に完全に隠れてボタンが押せなくなる。実際にそれで投稿できなくなっていたため、
+ * タブの高さ分だけ必ず持ち上げる。ページ側は本文に pb-44 程度を入れて重なりを避けること。
+ */
+export function ActionBar({ children }: { children: ReactNode }) {
+  return (
+    <div className="fixed bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom))] left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-3 pt-3 backdrop-blur-xl">
+      <div className="mx-auto max-w-lg">{children}</div>
+    </div>
+  );
+}
+
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="mb-4 block">

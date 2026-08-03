@@ -12,7 +12,7 @@ import {
   type PersonalColor,
   type StyleGenre,
 } from "@/types/models";
-import { Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
+import { ActionBar, Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
 import { IconChevronLeft } from "@/components/icons";
 
 export default function EditProfilePage() {
@@ -186,13 +186,11 @@ export default function EditProfilePage() {
         {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl">
-        <div className="mx-auto max-w-lg">
-          <PrimaryButton onClick={handleSave} disabled={saving}>
-            {saving ? "保存中…" : "保存する"}
-          </PrimaryButton>
-        </div>
-      </div>
+      <ActionBar>
+        <PrimaryButton onClick={handleSave} disabled={saving}>
+          {saving ? "保存中…" : "保存する"}
+        </PrimaryButton>
+      </ActionBar>
     </>
   );
 }

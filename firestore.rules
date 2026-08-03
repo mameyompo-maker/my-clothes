@@ -33,6 +33,16 @@ service cloud.firestore {
         && request.resource.data.friendUids.hasAll(resource.data.friendUids)
         && me() in request.resource.data.friendUids;
 
+      // 相互フォローが解除されたとき、相手の friendUids から「自分だけ」を抜く。
+      // 残った要素がすべて元からあったもので、かつ結果に自分が含まれないことを要求するため、
+      // 他人を巻き添えで削ることはできない。
+      allow update: if isSignedIn() && me() != uid
+        && changedKeys().hasOnly(['friendUids'])
+        && request.resource.data.friendUids.size() == resource.data.friendUids.size() - 1
+        && resource.data.friendUids.hasAll(request.resource.data.friendUids)
+        && me() in resource.data.friendUids
+        && !(me() in request.resource.data.friendUids);
+
       allow update: if isSignedIn() && me() != uid
         && changedKeys().hasOnly(['followerCount'])
         && request.resource.data.followerCount >= 0

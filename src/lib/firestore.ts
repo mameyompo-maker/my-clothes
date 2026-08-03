@@ -1,4 +1,5 @@
 import {
+  arrayRemove,
   arrayUnion,
   collection,
   deleteDoc,
@@ -152,11 +153,24 @@ export type ProfileEditableFields = Pick<
   | "sizeShoes"
   | "favoriteGenres"
   | "recommendMinuteOfDay"
+  | "avatarUrl"
+  | "favoritePostIds"
 >;
 
 export async function updateUserProfile(uid: string, patch: Partial<ProfileEditableFields>): Promise<void> {
   const database = requireDb();
   await updateDoc(doc(database, "users", uid), patch);
+}
+
+/**
+ * プロフィール画像を差し替える。既定では Google アカウントの写真が入っているので、
+ * 端末の写真から自由に変えられるようにするためのもの。
+ * 過去の投稿に焼き込まれた ownerAvatarUrl は遡って書き換えない(件数が読めないため)。
+ */
+export async function updateAvatar(uid: string, file: Blob): Promise<string> {
+  const avatarUrl = await uploadImage(`avatars/${uid}/${crypto.randomUUID()}.jpg`, file);
+  await updateUserProfile(uid, { avatarUrl });
+  return avatarUrl;
 }
 
 /** ハンドルの前方一致検索。ユーザー検索画面で使う。 */
@@ -200,15 +214,18 @@ export async function redeemInviteCode(myUid: string, rawCode: string): Promise<
   const friendUid = friendDoc.id;
   if (friendUid === myUid) throw new Error("自分自身は追加できません。");
 
-  await runTransaction(database, async (tx) => {
-    const friendRef = doc(database, "users", friendUid);
-    const friendSnap = await tx.get(friendRef);
-    const friendData = friendSnap.data() as UserProfile;
-    if (!friendData.friendUids.includes(myUid)) {
-      tx.update(friendRef, { friendUids: [...friendData.friendUids, myUid] });
-    }
-    tx.update(doc(database, "users", myUid), { friendUids: arrayUnion(friendUid) });
-  });
+  // 招待コードを教え合った時点でお互い納得しているとみなし、その場で友達にする。
+  // 同時にこちらからのフォローも張るので、相手がフォローバックすれば
+  // 「相互フォロー = 友達」の状態とも一致する。
+  const followRef = doc(database, "follows", followId(myUid, friendUid));
+  if (!(await getDoc(followRef)).exists()) {
+    const follow: Follow = { id: followRef.id, followerUid: myUid, followingUid: friendUid, createdAt: Date.now() };
+    await setDoc(followRef, follow);
+    await updateDoc(doc(database, "users", myUid), { followingCount: increment(1) });
+    await updateDoc(doc(database, "users", friendUid), { followerCount: increment(1) });
+  }
+
+  await becomeFriends(myUid, friendUid);
 
   return { friendUid, friendName: (friendDoc.data() as UserProfile).name ?? "友達" };
 }
@@ -227,6 +244,11 @@ export async function followUser(myUid: string, targetUid: string): Promise<void
   // カウンタは表示専用の非正規化値。多少ずれても機能は壊れないので個別更新でよい。
   await updateDoc(doc(database, "users", myUid), { followingCount: increment(1) });
   await updateDoc(doc(database, "users", targetUid), { followerCount: increment(1) });
+
+  // 相手も自分をフォローしていたら相互フォロー成立 = 友達。
+  if ((await getDoc(doc(database, "follows", followId(targetUid, myUid)))).exists()) {
+    await becomeFriends(myUid, targetUid);
+  }
 }
 
 export async function unfollowUser(myUid: string, targetUid: string): Promise<void> {
@@ -237,6 +259,39 @@ export async function unfollowUser(myUid: string, targetUid: string): Promise<vo
   await deleteDoc(followRef);
   await updateDoc(doc(database, "users", myUid), { followingCount: increment(-1) });
   await updateDoc(doc(database, "users", targetUid), { followerCount: increment(-1) });
+
+  // 片方が外れた時点で相互ではなくなるので、友達からも外す。
+  await stopBeingFriends(myUid, targetUid);
+}
+
+/** 双方の friendUids に相手を入れる。ルール上、他人のドキュメントには自分しか足せない。 */
+async function becomeFriends(myUid: string, otherUid: string): Promise<void> {
+  const database = requireDb();
+  await updateDoc(doc(database, "users", myUid), { friendUids: arrayUnion(otherUid) });
+
+  const otherRef = doc(database, "users", otherUid);
+  await runTransaction(database, async (tx) => {
+    const snap = await tx.get(otherRef);
+    const data = snap.data() as UserProfile | undefined;
+    const current = data?.friendUids ?? [];
+    if (current.includes(myUid)) return;
+    tx.update(otherRef, { friendUids: [...current, myUid] });
+  });
+}
+
+/** 双方の friendUids から外す。相手側は「自分を1件だけ削る」形しかルールが許さない。 */
+async function stopBeingFriends(myUid: string, otherUid: string): Promise<void> {
+  const database = requireDb();
+  await updateDoc(doc(database, "users", myUid), { friendUids: arrayRemove(otherUid) });
+
+  const otherRef = doc(database, "users", otherUid);
+  await runTransaction(database, async (tx) => {
+    const snap = await tx.get(otherRef);
+    const data = snap.data() as UserProfile | undefined;
+    const current = data?.friendUids ?? [];
+    if (!current.includes(myUid)) return;
+    tx.update(otherRef, { friendUids: current.filter((u) => u !== myUid) });
+  });
 }
 
 export async function isFollowing(myUid: string, targetUid: string): Promise<boolean> {
@@ -574,6 +629,13 @@ export async function listPublicStylePostsOf(ownerUid: string): Promise<StylePos
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data() as StylePost).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** お気に入りに指定された投稿だけを引く。消えている投稿は黙って除外する。 */
+export async function getStylePostsByIds(ids: string[]): Promise<StylePost[]> {
+  if (ids.length === 0) return [];
+  const posts = await Promise.all(ids.map((id) => getStylePost(id).catch(() => null)));
+  return posts.filter((p): p is StylePost => p !== null);
 }
 
 // ---------- Likes / Comments ----------

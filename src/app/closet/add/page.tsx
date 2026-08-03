@@ -14,7 +14,7 @@ import {
   type Season,
   type StyleGenre,
 } from "@/types/models";
-import { Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
+import { ActionBar, Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
 import { IconCamera, IconChevronLeft } from "@/components/icons";
 
 export default function AddClosetItemPage() {
@@ -179,13 +179,11 @@ export default function AddClosetItemPage() {
         {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl">
-        <div className="mx-auto max-w-lg">
-          <PrimaryButton onClick={handleSubmit} disabled={!file || !label.trim() || saving}>
-            {saving ? "保存中…" : "クローゼットに追加"}
-          </PrimaryButton>
-        </div>
-      </div>
+      <ActionBar>
+        <PrimaryButton onClick={handleSubmit} disabled={!file || !label.trim() || saving}>
+          {saving ? "保存中…" : "クローゼットに追加"}
+        </PrimaryButton>
+      </ActionBar>
     </>
   );
 }

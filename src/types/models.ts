@@ -106,6 +106,11 @@ export interface UserProfile {
   name: string;
   avatarUrl: string | null;
   inviteCode: string;
+  /**
+   * 「友達」= お互いにフォローしている相手。相互フォロー状態を毎回2方向クエリせずに
+   * 済ませるための非正規化キャッシュで、follow/unfollow のたびに両者ぶん更新している。
+   * 招待コードで追加した相手も、同時にフォローを張ったうえでここに入る。
+   */
   friendUids: string[];
   createdAt: number;
 
@@ -126,33 +131,11 @@ export interface UserProfile {
   postCount?: number;
   /** レコメンド通知を受け取りたい時刻(分単位、0-1439)。null なら通知しない。 */
   recommendMinuteOfDay?: number | null;
+  /** プロフィール上部に大きく出すお気に入りコーデ(StylePost の id、最大3件)。 */
+  favoritePostIds?: string[];
 }
 
-/** 新フィールドの既定値を埋めた形に整える。読み出し側は必ずこれを通す。 */
-export function normalizeProfile(p: UserProfile): Required<Omit<UserProfile, "avatarUrl" | "height" | "recommendMinuteOfDay">> &
-  Pick<UserProfile, "avatarUrl" | "height" | "recommendMinuteOfDay"> {
-  return {
-    uid: p.uid,
-    name: p.name,
-    avatarUrl: p.avatarUrl ?? null,
-    inviteCode: p.inviteCode,
-    friendUids: p.friendUids ?? [],
-    createdAt: p.createdAt,
-    handle: p.handle ?? "",
-    bio: p.bio ?? "",
-    height: p.height ?? null,
-    bodyType: p.bodyType ?? "unknown",
-    personalColor: p.personalColor ?? "unknown",
-    sizeTops: p.sizeTops ?? "",
-    sizeBottoms: p.sizeBottoms ?? "",
-    sizeShoes: p.sizeShoes ?? "",
-    favoriteGenres: p.favoriteGenres ?? [],
-    followerCount: p.followerCount ?? 0,
-    followingCount: p.followingCount ?? 0,
-    postCount: p.postCount ?? 0,
-    recommendMinuteOfDay: p.recommendMinuteOfDay ?? null,
-  };
-}
+export const MAX_FAVORITE_POSTS = 3;
 
 // ---------------------------------------------------------------------------
 // クローゼット

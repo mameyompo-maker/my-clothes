@@ -11,10 +11,13 @@ import {
   listUserStylePosts,
   MAX_FACE_PATTERNS,
   redeemInviteCode,
+  updateAvatar,
+  updateUserProfile,
 } from "@/lib/firestore";
 import { compressImage } from "@/lib/image";
 import {
   BODY_TYPES,
+  MAX_FAVORITE_POSTS,
   PERSONAL_COLORS,
   STYLE_GENRES,
   type FacePattern,
@@ -55,8 +58,37 @@ export default function ProfilePage() {
   >({ kind: "idle" });
   const [friendSheet, setFriendSheet] = useState(false);
   const [faceSheet, setFaceSheet] = useState(false);
+  const [favSheet, setFavSheet] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  const favoriteIds = profile?.favoritePostIds ?? [];
+  const favoritePosts = (posts ?? []).filter((p) => favoriteIds.includes(p.id));
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    setAvatarBusy(true);
+    try {
+      const compressed = await compressImage(file);
+      await updateAvatar(user.uid, compressed);
+      await refreshProfile();
+    } finally {
+      setAvatarBusy(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }
+
+  async function toggleFavorite(postId: string) {
+    if (!user) return;
+    const next = favoriteIds.includes(postId)
+      ? favoriteIds.filter((id) => id !== postId)
+      : [...favoriteIds, postId].slice(-MAX_FAVORITE_POSTS);
+    await updateUserProfile(user.uid, { favoritePostIds: next });
+    await refreshProfile();
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -177,7 +209,30 @@ export default function ProfilePage() {
       <div className="mx-auto max-w-lg pb-28">
         <div className="px-4 pt-5">
           <div className="mb-4 flex items-center gap-5">
-            <Avatar src={profile.avatarUrl} name={profile.name} size={78} ring />
+            {/* capture を付けないことで、カメラ起動ではなく端末の写真ライブラリが開く。 */}
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarChange}
+            />
+            <button
+              onClick={() => avatarInputRef.current?.click()}
+              disabled={avatarBusy}
+              className="tappable relative shrink-0"
+              aria-label="プロフィール画像を変更"
+            >
+              <Avatar src={profile.avatarUrl} name={profile.name} size={78} ring />
+              <span className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-accent text-accent-foreground">
+                <IconCamera className="h-3.5 w-3.5" />
+              </span>
+              {avatarBusy && (
+                <span className="absolute inset-0 flex items-center justify-center rounded-full bg-background/70 text-[10px] font-bold">
+                  更新中
+                </span>
+              )}
+            </button>
             <div className="grid flex-1 grid-cols-3 text-center">
               <Stat value={posts?.length ?? 0} label="投稿" />
               <Stat value={profile.followerCount ?? 0} label="フォロワー" />
@@ -241,6 +296,35 @@ export default function ProfilePage() {
               </div>
             )}
           </div>
+
+          <section className="mb-5">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-sm font-bold">お気に入りのコーデ</h2>
+              <button
+                onClick={() => setFavSheet(true)}
+                className="tappable text-xs font-bold text-accent"
+                disabled={(posts?.length ?? 0) === 0}
+              >
+                選ぶ
+              </button>
+            </div>
+            {favoritePosts.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-border px-4 py-5 text-center text-[11px] leading-relaxed text-muted-foreground">
+                お気に入りの投稿を{MAX_FAVORITE_POSTS}つまでここに固定できます。
+                {(posts?.length ?? 0) === 0 && "まずは1枚投稿してみましょう。"}
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {favoritePosts.map((p) => (
+                  <Link key={p.id} href={`/post/${p.id}`} className="tappable">
+                    <div className="relative overflow-hidden rounded-2xl bg-surface-muted" style={{ aspectRatio: "3 / 4" }}>
+                      <Image src={p.imageUrl} alt={p.caption || "お気に入り"} fill className="object-cover" unoptimized />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
 
           <button
             onClick={() => setFaceSheet(true)}
@@ -366,6 +450,35 @@ export default function ProfilePage() {
             ))}
           </ul>
         )}
+      </BottomSheet>
+
+      {/* お気に入り選択シート */}
+      <BottomSheet open={favSheet} onClose={() => setFavSheet(false)} title="お気に入りのコーデを選ぶ">
+        <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+          最大{MAX_FAVORITE_POSTS}つまで選べます。上限を超えて選ぶと、いちばん古い選択が外れます。
+        </p>
+        <div className="grid grid-cols-3 gap-2 pb-6">
+          {(posts ?? []).map((p) => {
+            const selected = favoriteIds.includes(p.id);
+            return (
+              <button key={p.id} onClick={() => toggleFavorite(p.id)} className="tappable">
+                <div
+                  className={`relative overflow-hidden rounded-2xl bg-surface-muted ring-2 ${
+                    selected ? "ring-accent" : "ring-transparent"
+                  }`}
+                  style={{ aspectRatio: "3 / 4" }}
+                >
+                  <Image src={p.imageUrl} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
+                  {selected && (
+                    <span className="animate-pop-in absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-accent-foreground">
+                      <IconCheck className="h-3.5 w-3.5" />
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </BottomSheet>
 
       {/* 顔パターンシート */}

@@ -28,6 +28,7 @@ import {
 } from "@/types/models";
 import { HangerRail } from "@/components/HangerRail";
 import {
+  ActionBar,
   Avatar,
   Chip,
   EmptyState,
@@ -394,17 +395,15 @@ export default function CreatePostPage() {
           )}
         </div>
 
-        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-lg gap-2">
-            {!slotReady(1) && slotReady(0) ? (
-              <PrimaryButton onClick={() => setSlot(1)}>候補Bを作る</PrimaryButton>
-            ) : (
-              <PrimaryButton onClick={() => setStep("finish")} disabled={!bothReady}>
-                次へ(顔と気分)
-              </PrimaryButton>
-            )}
-          </div>
-        </div>
+        <ActionBar>
+          {!slotReady(1) && slotReady(0) ? (
+            <PrimaryButton onClick={() => setSlot(1)}>候補Bを作る</PrimaryButton>
+          ) : (
+            <PrimaryButton onClick={() => setStep("finish")} disabled={!bothReady}>
+              次へ(顔と気分)
+            </PrimaryButton>
+          )}
+        </ActionBar>
       </>
     );
   }
@@ -545,13 +544,16 @@ export default function CreatePostPage() {
         {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl">
-        <div className="mx-auto max-w-lg">
-          <PrimaryButton onClick={handleSubmit} disabled={!canSubmit}>
-            {submitting ? "投稿中…" : friends.length === 0 ? "2択を保存する" : "投稿して選んでもらう"}
-          </PrimaryButton>
-        </div>
-      </div>
+      <ActionBar>
+        <PrimaryButton onClick={handleSubmit} disabled={!canSubmit}>
+          {submitting ? "投稿中…" : friends.length === 0 ? "2択を保存する" : "投稿して選んでもらう"}
+        </PrimaryButton>
+        {!mood.trim() && bothReady && (
+          <p className="pt-2 text-center text-[11px] text-muted-foreground">
+            「今日の気分・予定」を入れると投稿できます
+          </p>
+        )}
+      </ActionBar>
     </>
   );
 }
