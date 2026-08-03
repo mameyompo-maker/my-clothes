@@ -140,9 +140,13 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.ownerUid == me();
 
       match /votes/{voterUid} {
+        // 公開の2択は誰でも投票できるのに、読みが友達限定のままだと
+        // 「投票はできるが集計が見えない」という中途半端な状態になる(実際になっていた)。
+        // 公開投稿の票は誰でも読めるようにする。
         allow read: if isSignedIn()
           && (get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid == me()
-              || me() in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids);
+              || me() in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids
+              || get(/databases/$(database)/documents/outfitPosts/$(postId)).data.get('visibility', 'friends') == 'public');
         allow create, update: if isSignedIn() && me() == voterUid
           && request.resource.data.voterUid == voterUid
           && request.resource.data.postId == postId

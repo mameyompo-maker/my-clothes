@@ -860,6 +860,13 @@ export async function setVoteReason(postId: string, voterUid: string, reason: Vo
   await updateDoc(doc(database, "outfitPosts", postId, "votes", voterUid), { reason });
 }
 
+/** 自分がこの2択に投票済みか。一覧で「未投票」を前に出すために使う。 */
+export async function hasVotedOn(postId: string, uid: string): Promise<boolean> {
+  const database = requireDb();
+  const snap = await getDoc(doc(database, "outfitPosts", postId, "votes", uid));
+  return snap.exists();
+}
+
 export function watchVotes(postId: string, onChange: (votes: Vote[]) => void): Unsubscribe {
   const database = requireDb();
   const q = collection(database, "outfitPosts", postId, "votes");

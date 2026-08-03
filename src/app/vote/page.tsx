@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import {
   getFriendProfiles,
+  getUserProfile,
+  hasVotedOn,
   listClosetItems,
   listFacePatterns,
   watchFeedPosts,
@@ -34,6 +36,8 @@ export default function VoteListPage() {
   const [myItems, setMyItems] = useState<ClosetItem[]>([]);
   const [myFaces, setMyFaces] = useState<FacePattern[]>([]);
   const [loading, setLoading] = useState(true);
+  // postId → 自分が投票済みか。未投票の2択を先頭に出すために引く。
+  const [votedMap, setVotedMap] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!user) return;
@@ -78,6 +82,46 @@ export default function VoteListPage() {
     });
   }, [profile]);
 
+  // 公開2択は友達以外(公式サンプル含む)も並ぶので、友達一覧に無い投稿主を補完する。
+  useEffect(() => {
+    const missing = Array.from(new Set(friendPosts.map((p) => p.ownerUid))).filter((u) => !ownerByUid[u]);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    Promise.all(missing.map((u) => getUserProfile(u))).then((profiles) => {
+      if (cancelled) return;
+      const found = profiles.filter((p): p is UserProfile => p !== null);
+      if (found.length > 0) {
+        setOwnerByUid((prev) => ({ ...prev, ...Object.fromEntries(found.map((p) => [p.uid, p])) }));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [friendPosts, ownerByUid]);
+
+  // 自分が投票済みかを1件ずつ引く(votes/{自分のuid} の存在確認だけなので安い)。
+  useEffect(() => {
+    if (!user) return;
+    const unknown = friendPosts.filter((p) => votedMap[p.id] === undefined);
+    if (unknown.length === 0) return;
+    let cancelled = false;
+    Promise.all(unknown.map((p) => hasVotedOn(p.id, user.uid).catch(() => false))).then((results) => {
+      if (cancelled) return;
+      setVotedMap((prev) => ({
+        ...prev,
+        ...Object.fromEntries(unknown.map((p, i) => [p.id, results[i]])),
+      }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [friendPosts, user, votedMap]);
+
+  // 未投票を先頭に。「まだ選んであげていない友達」から片付けられるようにする。
+  const orderedFriendPosts = [...friendPosts].sort(
+    (a, b) => Number(votedMap[a.id] ?? false) - Number(votedMap[b.id] ?? false)
+  );
+
   const nothing = myPosts.length === 0 && friendPosts.length === 0;
 
   return (
@@ -107,14 +151,15 @@ export default function VoteListPage() {
               <section>
                 <h2 className="mb-3 text-sm font-bold">友達が迷っています</h2>
                 <div className="space-y-4">
-                  {friendPosts.map((post) => (
+                  {orderedFriendPosts.map((post) => (
                     <PostSummaryCard
                       key={post.id}
                       post={post}
                       owner={ownerByUid[post.ownerUid]}
                       items={[]}
                       faces={[]}
-                      cta="選んであげる"
+                      cta={votedMap[post.id] ? "結果を見る" : "選んであげる"}
+                      voted={votedMap[post.id] ?? false}
                     />
                   ))}
                 </div>
@@ -153,6 +198,7 @@ function PostSummaryCard({
   faces,
   cta,
   isMine = false,
+  voted = false,
 }: {
   post: OutfitPost;
   owner?: UserProfile;
@@ -160,6 +206,7 @@ function PostSummaryCard({
   faces: FacePattern[];
   cta: string;
   isMine?: boolean;
+  voted?: boolean;
 }) {
   return (
     <Link
@@ -172,6 +219,11 @@ function PostSummaryCard({
           <p className="truncate text-sm font-bold">{isMine ? "あなた" : (owner?.name ?? "友達")}</p>
           <p className="truncate text-xs text-muted-foreground">{post.mood || "今日のコーデ"}</p>
         </div>
+        {!isMine && voted && (
+          <span className="shrink-0 rounded-full bg-surface-muted px-2 py-1 text-[10px] font-semibold text-muted-foreground">
+            投票済み
+          </span>
+        )}
         <span className="flex shrink-0 items-center gap-1 rounded-full bg-surface-muted px-2 py-1 text-[10px] font-semibold text-muted-foreground">
           <IconClock className="h-3 w-3" />
           {timeLeftLabel(post.expiresAt)}
