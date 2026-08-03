@@ -50,6 +50,7 @@ import {
   type StylePost,
   type UserProfile,
   type Vote,
+  type VoteReason,
 } from "@/types/models";
 
 const POST_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -169,6 +170,7 @@ export type ProfileEditableFields = Pick<
   | "favoritePostIds"
   | "primaryWardrobe"
   | "lastReadNotificationAt"
+  | "priceViews"
 >;
 
 export async function updateUserProfile(uid: string, patch: Partial<ProfileEditableFields>): Promise<void> {
@@ -516,6 +518,10 @@ export interface ClosetItemInput {
   genres: StyleGenre[];
   seasons: Season[];
   memo: string;
+  /** 値段(円)。未入力は null。 */
+  price?: number | null;
+  /** 値段を他の人にも見せるか。既定は false。 */
+  pricePublic?: boolean;
 }
 
 export async function addClosetItem(ownerUid: string, input: ClosetItemInput, file: Blob): Promise<ClosetItem> {
@@ -538,9 +544,20 @@ export async function addClosetItem(ownerUid: string, input: ClosetItemInput, fi
     memo: input.memo,
     wearCount: 0,
     lastWornAt: null,
+    price: input.price ?? null,
+    pricePublic: input.pricePublic ?? false,
   };
   await setDoc(doc(database, "closetItems", id), item);
   return item;
+}
+
+/** 投稿のアイテムタグなどから、IDでまとめて服を引く。存在しないIDは黙って落とす。 */
+export async function getClosetItemsByIds(itemIds: string[]): Promise<ClosetItem[]> {
+  const database = requireDb();
+  const ids = Array.from(new Set(itemIds)).filter(Boolean);
+  if (ids.length === 0) return [];
+  const snaps = await Promise.all(ids.map((id) => getDoc(doc(database, "closetItems", id))));
+  return snaps.filter((s) => s.exists()).map((s) => s.data() as ClosetItem);
 }
 
 export async function updateClosetItem(
@@ -706,6 +723,18 @@ export async function getOutfitPost(postId: string): Promise<OutfitPost | null> 
   return snap.exists() ? (snap.data() as OutfitPost) : null;
 }
 
+/**
+ * 2択投稿を購読する。AI合成は投稿の作成後に非同期で書き込まれるので、
+ * 1回のgetだと「合成待ち」のまま画面が止まって見える。合成が終わった瞬間に
+ * 画像へ切り替わるよう、詳細画面ではこちらを使うこと。
+ */
+export function watchOutfitPost(postId: string, onChange: (post: OutfitPost | null) => void): Unsubscribe {
+  const database = requireDb();
+  return onSnapshot(doc(database, "outfitPosts", postId), (snap) =>
+    onChange(snap.exists() ? (snap.data() as OutfitPost) : null)
+  );
+}
+
 /** 「実際にこっちを着る」と決めたときに呼ぶ。カレンダーの記録になる。 */
 export async function decideOutfitCandidate(postId: string, candidateIndex: number): Promise<void> {
   const database = requireDb();
@@ -820,6 +849,15 @@ export async function castVote(
       if (post) void sendNotification(post.ownerUid, voter, "vote", null).catch(() => {});
     });
   }
+}
+
+/**
+ * 投票に理由スタンプを添える。投票済みの本人だけが自分の票を更新できる
+ * (ルールの votes は create と update を同じ条件で許可している)。
+ */
+export async function setVoteReason(postId: string, voterUid: string, reason: VoteReason): Promise<void> {
+  const database = requireDb();
+  await updateDoc(doc(database, "outfitPosts", postId, "votes", voterUid), { reason });
 }
 
 export function watchVotes(postId: string, onChange: (votes: Vote[]) => void): Unsubscribe {

@@ -7,16 +7,26 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   castVote,
   decideOutfitCandidate,
-  getOutfitPost,
   getUserProfile,
   listClosetItems,
   listFacePatterns,
   markItemsWorn,
+  setVoteReason,
   tallyVotes,
+  watchOutfitPost,
   watchVotes,
 } from "@/lib/firestore";
-import type { ClosetItem, FacePattern, OutfitPost, UserProfile, Vote } from "@/types/models";
+import {
+  VOTE_REASONS,
+  type ClosetItem,
+  type FacePattern,
+  type OutfitPost,
+  type UserProfile,
+  type Vote,
+  type VoteReason,
+} from "@/types/models";
 import { OutfitCard, OutfitItemChips } from "@/components/OutfitCard";
+import { PricePanel } from "@/components/PricePanel";
 import { Avatar, IconButton, PrimaryButton, SecondaryButton, Skeleton, TopBar } from "@/components/ui";
 import { IconCamera, IconCheck, IconChevronLeft } from "@/components/icons";
 
@@ -45,15 +55,19 @@ export default function VoteDetailPage() {
   }, []);
 
   useEffect(() => {
-    getOutfitPost(postId).then(async (p) => {
-      setPost(p);
-      if (!p) return;
-      setOwner(await getUserProfile(p.ownerUid));
-      setItems(await listClosetItems(p.ownerUid));
-      // 顔写真は本人しか読めない(facePatterns のルール)。他人の投稿では空のままでよい。
-      if (p.ownerUid === user?.uid) setFaces(await listFacePatterns(p.ownerUid));
-    });
-  }, [postId, user?.uid]);
+    // AI合成は投稿の作成後に非同期で書き込まれる。1回のgetだと「合成待ち」のまま
+    // 画面が止まって見えるので、購読にして完成した瞬間に画像へ切り替える。
+    return watchOutfitPost(postId, setPost);
+  }, [postId]);
+
+  const postOwnerUid = post?.ownerUid ?? null;
+  useEffect(() => {
+    if (!postOwnerUid) return;
+    getUserProfile(postOwnerUid).then(setOwner);
+    listClosetItems(postOwnerUid).then(setItems);
+    // 顔写真は本人しか読めない(facePatterns のルール)。他人の投稿では空のままでよい。
+    if (postOwnerUid === user?.uid) listFacePatterns(postOwnerUid).then(setFaces);
+  }, [postOwnerUid, user?.uid]);
 
   useEffect(() => watchVotes(postId, setVotes), [postId]);
 
@@ -101,6 +115,26 @@ export default function VoteDetailPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleReason(reason: VoteReason) {
+    if (!user || !myVote) return;
+    setBusy(true);
+    try {
+      // watchVotes が拾って自分の票に理由が付き、スタンプの選択肢は自動で消える。
+      await setVoteReason(postId, user.uid, reason);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 候補ごとの理由スタンプの集計。「🎨 色がすき ×2」のように出す。 */
+  function reasonSummary(index: number) {
+    const counts: Partial<Record<VoteReason, number>> = {};
+    for (const v of votes) {
+      if (v.candidateIndex === index && v.reason) counts[v.reason] = (counts[v.reason] ?? 0) + 1;
+    }
+    return VOTE_REASONS.filter((r) => counts[r.value]).map((r) => ({ ...r, count: counts[r.value] ?? 0 }));
   }
 
   return (
@@ -177,6 +211,18 @@ export default function VoteDetailPage() {
 
                 <OutfitItemChips candidate={candidate} items={items} />
 
+                {/* 投票理由スタンプの集計。「なぜこっちが人気か」が分かると決めるのが速くなる。 */}
+                {revealTally && reasonSummary(index).length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {reasonSummary(index).map((r) => (
+                      <span key={r.value} className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] text-foreground">
+                        {r.emoji} {r.label}
+                        {r.count > 1 ? ` ×${r.count}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {isOwner && (
                   <button
                     onClick={() => handleDecide(index)}
@@ -193,6 +239,21 @@ export default function VoteDetailPage() {
               </div>
             );
           })}
+        </div>
+
+        {/* コーデの値段。持ち主はいつでも、他の人は公開設定の値段だけを
+            無料1日1コーデ(プレミアムは無制限)で見られる。 */}
+        <div className="mb-5">
+          <PricePanel
+            postId={post.id}
+            ownerUid={post.ownerUid}
+            groups={post.candidates.map((c, i) => ({
+              title: `候補${i === 0 ? "A" : "B"}`,
+              items: c.itemIds
+                .map((id) => items.find((it) => it.id === id))
+                .filter((x): x is ClosetItem => Boolean(x)),
+            }))}
+          />
         </div>
 
         {isOwner && decided !== null && (
@@ -219,6 +280,23 @@ export default function VoteDetailPage() {
 
         {!isOwner && myVote && (
           <div className="space-y-3">
+            {!myVote.reason && (
+              <div className="rounded-2xl border border-border bg-surface p-3">
+                <p className="mb-2 text-xs font-bold">どうしてこっち?(任意・ワンタップ)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {VOTE_REASONS.map((r) => (
+                    <button
+                      key={r.value}
+                      onClick={() => handleReason(r.value)}
+                      disabled={busy}
+                      className="tappable rounded-full border border-border bg-surface px-3 py-1.5 text-xs"
+                    >
+                      {r.emoji} {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <p className="text-center text-xs text-muted-foreground">投票ありがとうございます!</p>
             <Link href="/vote">
               <SecondaryButton>ほかの2択を見る</SecondaryButton>

@@ -8,6 +8,7 @@ import { addClosetItem } from "@/lib/firestore";
 import { compressImage } from "@/lib/image";
 import {
   CLOSET_CATEGORIES,
+  parsePrice,
   SEASONS,
   STYLE_GENRES,
   type ClosetCategory,
@@ -32,6 +33,8 @@ export default function AddClosetItemPage() {
   const [genres, setGenres] = useState<StyleGenre[]>([]);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [memo, setMemo] = useState("");
+  const [price, setPrice] = useState("");
+  const [pricePublic, setPricePublic] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -67,6 +70,8 @@ export default function AddClosetItemPage() {
           genres,
           seasons,
           memo: memo.trim(),
+          price: parsePrice(price),
+          pricePublic,
         },
         compressed
       );
@@ -163,6 +168,24 @@ export default function AddClosetItemPage() {
                 {s.emoji} {s.label}
               </Chip>
             ))}
+          </div>
+        </Field>
+
+        <Field
+          label="値段(任意)"
+          hint="円で入力。「公開」にすると、このアイテム入りのコーデを見た人が値段を見られます。"
+        >
+          <div className="flex items-center gap-2">
+            <input
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              inputMode="numeric"
+              placeholder="3990"
+              className={`${inputClass} flex-1`}
+            />
+            <Chip size="sm" selected={pricePublic} onClick={() => setPricePublic((v) => !v)}>
+              公開する
+            </Chip>
           </div>
         </Field>
 

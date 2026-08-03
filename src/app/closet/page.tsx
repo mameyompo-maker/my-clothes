@@ -16,6 +16,7 @@ import { seedItemsFor, WARDROBE_STYLES, type WardrobeStyle } from "@/data/seedCl
 import {
   CLOSET_CATEGORIES,
   parseHashtags,
+  parsePrice,
   SEASONS,
   STYLE_GENRES,
   seasonOfMonth,
@@ -24,7 +25,7 @@ import {
   type Season,
   type StyleGenre,
 } from "@/types/models";
-import { HangerRail } from "@/components/HangerRail";
+import { ClosetCardGrid, WardrobeHero } from "@/components/WardrobeCloset";
 import { downloadJson } from "@/lib/share";
 import {
   Avatar,
@@ -66,6 +67,8 @@ export default function ClosetPage() {
   const [seedSheetOpen, setSeedSheetOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
+  // ワードローブの中央に掛けるアイテム。未選択なら一覧の先頭。
+  const [featuredId, setFeaturedId] = useState<string | null>(null);
   const [ioNote, setIoNote] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -105,6 +108,11 @@ export default function ClosetPage() {
       sorted.sort((a, b) => (a.lastWornAt ?? 0) - (b.lastWornAt ?? 0));
     } else {
       sorted.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    // お気に入りは並び順を保ったまま先頭に浮かせる(sort は安定ソートなので順序は崩れない)。
+    // ただし「眠っている順」は掘り起こしが目的なので、お気に入りを優遇しない。
+    if (sort !== "dormant") {
+      sorted.sort((a, b) => Number(b.favorite ?? false) - Number(a.favorite ?? false));
     }
     return sorted;
   }, [items, category, genre, season, search, sort]);
@@ -147,6 +155,9 @@ export default function ClosetPage() {
           memo: i.memo ?? "",
           hashtags: i.hashtags ?? [],
           wardrobe: i.wardrobe ?? null,
+          price: i.price ?? null,
+          pricePublic: i.pricePublic ?? false,
+          favorite: i.favorite ?? false,
         })),
       },
       `my-clothes-closet-${new Date().toISOString().slice(0, 10)}.json`
@@ -197,6 +208,16 @@ export default function ClosetPage() {
     await updateClosetItem(editing.id, patch);
     setItems((prev) => (prev ?? []).map((i) => (i.id === editing.id ? { ...i, ...patch } : i)));
     setEditing(null);
+  }
+
+  /** お気に入りの付け外し。画面は先に切り替え、保存は裏で行う。 */
+  function handleToggleFavorite(item: ClosetItem) {
+    const next = !item.favorite;
+    setItems((prev) => (prev ?? []).map((i) => (i.id === item.id ? { ...i, favorite: next } : i)));
+    void updateClosetItem(item.id, { favorite: next }).catch(() => {
+      // 保存に失敗したら表示を元に戻す(黙って食い違ったままにしない)。
+      setItems((prev) => (prev ?? []).map((i) => (i.id === item.id ? { ...i, favorite: !next } : i)));
+    });
   }
 
   async function handleDelete() {
@@ -375,7 +396,20 @@ export default function ClosetPage() {
             )}
           </>
         ) : (
-          <HangerRail items={filtered} onSelect={(item) => setEditing(item)} />
+          <>
+            {/* 参考画像(2026-08-04 Kazさん指定)のワードローブ表示。
+                下のカードをタップすると中央に掛け替わり、写真タップで編集を開く。 */}
+            <WardrobeHero
+              item={filtered.find((i) => i.id === featuredId) ?? filtered[0] ?? null}
+              onEdit={(item) => setEditing(item)}
+            />
+            <ClosetCardGrid
+              items={filtered}
+              featuredId={featuredId ?? filtered[0]?.id ?? null}
+              onSelect={(item) => setFeaturedId(item.id)}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          </>
         )}
       </div>
 
@@ -480,6 +514,8 @@ function EditItemForm({
   const [brand, setBrand] = useState(item.brand ?? "");
   const [size, setSize] = useState(item.size ?? "");
   const [color, setColor] = useState(item.color ?? "");
+  const [price, setPrice] = useState(typeof item.price === "number" ? String(item.price) : "");
+  const [pricePublic, setPricePublic] = useState(item.pricePublic ?? false);
   const [genres, setGenres] = useState<StyleGenre[]>(item.genres ?? []);
   const [seasons, setSeasons] = useState<Season[]>(item.seasons ?? []);
   const [category, setCategory] = useState<ClosetCategory>(item.category);
@@ -543,6 +579,24 @@ function EditItemForm({
         </Field>
       </div>
 
+      <Field
+        label="値段(任意)"
+        hint="円で入力。「公開」にすると、この服入りのコーデを見た人が値段を見られます(無料は1日1コーデまで)。"
+      >
+        <div className="flex items-center gap-2">
+          <input
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            inputMode="numeric"
+            placeholder="3990"
+            className={`${inputClass} flex-1`}
+          />
+          <Chip size="sm" selected={pricePublic} onClick={() => setPricePublic((v) => !v)}>
+            公開する
+          </Chip>
+        </div>
+      </Field>
+
       <Field label="ジャンル">
         <div className="flex flex-wrap gap-2">
           {STYLE_GENRES.map((g) => (
@@ -581,6 +635,8 @@ function EditItemForm({
               seasons,
               category,
               hashtags: parseHashtags(tagsText),
+              price: parsePrice(price),
+              pricePublic,
             });
             setSaving(false);
           }}

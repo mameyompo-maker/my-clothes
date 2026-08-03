@@ -34,6 +34,24 @@ export async function composeOutfitImage(input: ComposeOutfitImageInput): Promis
   return result.data;
 }
 
+export interface PrecomposeOutfitInput {
+  itemIds: string[];
+  facePatternId: string | null;
+  liveCaptureUrl: string | null;
+}
+
+/**
+ * 先行合成。投稿を作る前に「服+顔」の組み合わせだけで合成を始める。
+ * コーデ作成の仕上げステップに入った時点で呼び、本人が気分や共有相手を入力している
+ * 裏で合成を済ませる。結果はサーバー側のキャッシュに載るので、投稿確定時の
+ * composeOutfitImage はキャッシュヒットしてほぼ即座に返る。
+ */
+export async function precomposeOutfit(input: PrecomposeOutfitInput): Promise<ComposeOutfitImageResult> {
+  const call = httpsCallable<PrecomposeOutfitInput, ComposeOutfitImageResult>(functions(), "precomposeOutfit");
+  const result = await call(input);
+  return result.data;
+}
+
 /**
  * Stripe の決済ページのURLを受け取る。カード情報はこちらのアプリを一切通らず、
  * Stripe のホストするページで入力される。

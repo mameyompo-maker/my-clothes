@@ -16,7 +16,7 @@ import {
   undoOutfitPost,
   uploadImage,
 } from "@/lib/firestore";
-import { composeOutfitImage } from "@/lib/functions";
+import { composeOutfitImage, precomposeOutfit } from "@/lib/functions";
 import { compressImage } from "@/lib/image";
 import { suggestOutfit } from "@/lib/recommend";
 import {
@@ -107,6 +107,37 @@ export default function CreatePostPage() {
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- AI合成の先行実行。仕上げステップに入った時点で裏で合成を始めておき、
+  // 気分や共有相手を入力している時間で「合成待ち」を吸収する。
+  // キー(署名)は「服の組み合わせ+顔」。署名→合成済みURL。
+  const [precomposed, setPrecomposed] = useState<Record<string, string>>({});
+  // 一度発火した署名。失敗しても再発火しない(投稿時の通常ルートが拾い直すため)。
+  const precomposeStarted = useRef<Set<string>>(new Set());
+  // 撮影した顔写真のアップロード結果。同じファイルの二重アップロードを防ぐ。
+  const liveUploads = useRef<Map<File, Promise<string>>>(new Map());
+
+  function draftSignature(d: Draft): string | null {
+    const itemIds = Object.values(d.itemIdsByCategory);
+    if (itemIds.length === 0) return null;
+    const face = d.liveCaptureFile
+      ? `live:${d.liveCaptureFile.name}:${d.liveCaptureFile.size}:${d.liveCaptureFile.lastModified}`
+      : d.facePatternId
+        ? `face:${d.facePatternId}`
+        : null;
+    // 顔が無い候補は合成対象にならない(合成には顔写真が必須)。
+    if (!face) return null;
+    return `${face}|${[...itemIds].sort().join(",")}`;
+  }
+
+  function uploadLiveCapture(file: File, uid: string): Promise<string> {
+    let p = liveUploads.current.get(file);
+    if (!p) {
+      p = compressImage(file).then((blob) => uploadImage(`outfits/${uid}/${crypto.randomUUID()}.jpg`, blob));
+      liveUploads.current.set(file, p);
+    }
+    return p;
+  }
+
   useEffect(() => {
     if (!user || !profile) return;
     Promise.all([
@@ -135,6 +166,34 @@ export default function CreatePostPage() {
       .then(setWeather)
       .catch(() => setWeather(null));
   }, []);
+
+  // 仕上げステップに入ったら、確定している候補のAI合成を先に始める。
+  // 発火は仕上げステップ限定にしてある: 服選びの途中で発火すると、選び直すたびに
+  // 使われない合成が走ってトークンを無駄にするため。ここなら組み合わせはほぼ確定している。
+  useEffect(() => {
+    if (step !== "finish" || !user) return;
+    for (const d of drafts) {
+      const sig = draftSignature(d);
+      if (!sig || precomposeStarted.current.has(sig)) continue;
+      precomposeStarted.current.add(sig);
+      void (async () => {
+        try {
+          let liveCaptureUrl: string | null = null;
+          if (d.liveCaptureFile) liveCaptureUrl = await uploadLiveCapture(d.liveCaptureFile, user.uid);
+          const { composedImageUrl } = await precomposeOutfit({
+            itemIds: Object.values(d.itemIdsByCategory) as string[],
+            facePatternId: d.liveCaptureFile ? null : d.facePatternId,
+            liveCaptureUrl,
+          });
+          setPrecomposed((prev) => ({ ...prev, [sig]: composedImageUrl }));
+        } catch {
+          // 失敗してもここでは何もしない。投稿時の通常ルート(composeOutfitImage)が
+          // もう一度試すので、先行合成の失敗が投稿を妨げることはない。
+        }
+      })();
+    }
+    // drafts の変更(顔の選び直しなど)でも再評価する。署名が変わった候補だけ新たに発火する。
+  }, [step, drafts, user]);
 
   /** 今日の2択を取り消して、もう一度作れる状態に戻す。 */
   async function handleUndoToday() {
@@ -176,11 +235,16 @@ export default function CreatePostPage() {
    * どちらの設定でも常に出す——本人の服を隠す理由が無いので。
    */
   const visibleItems = useMemo(() => {
-    if (!primaryWardrobe || showOtherWardrobe) return closetItems;
-    return closetItems.filter((i) => {
-      const w = wardrobeOfItem(i);
-      return w === null || w === primaryWardrobe;
-    });
+    const base =
+      !primaryWardrobe || showOtherWardrobe
+        ? closetItems
+        : closetItems.filter((i) => {
+            const w = wardrobeOfItem(i);
+            return w === null || w === primaryWardrobe;
+          });
+    // クローゼットで星を付けたお気に入りを先頭に出す。よく着る服ほど早く手に取れる
+    // ようにして選ぶ時間を削る。安定ソートなので元の並び(登録順)は崩れない。
+    return [...base].sort((a, b) => Number(b.favorite ?? false) - Number(a.favorite ?? false));
   }, [closetItems, primaryWardrobe, showOtherWardrobe]);
 
   /** 反対側の見本を持っているときだけ、切り替えを出す意味がある。 */
@@ -254,15 +318,19 @@ export default function CreatePostPage() {
       for (const d of drafts) {
         let liveCaptureUrl: string | null = null;
         if (d.liveCaptureFile) {
-          const compressed = await compressImage(d.liveCaptureFile);
-          liveCaptureUrl = await uploadImage(`outfits/${user.uid}/${crypto.randomUUID()}.jpg`, compressed);
+          // 先行合成が既にアップロードしていれば同じURLを使い回す。
+          // ここで別のURLに上げ直すと合成キャッシュのキーが変わり、ヒットしなくなる。
+          liveCaptureUrl = await uploadLiveCapture(d.liveCaptureFile, user.uid);
         }
+        const sig = draftSignature(d);
+        const readyUrl = sig ? precomposed[sig] : undefined;
         candidates.push({
           itemIds: Object.values(d.itemIdsByCategory) as string[],
           facePatternId: liveCaptureUrl ? null : d.facePatternId,
           liveCaptureUrl,
-          composedImageUrl: null,
-          composeStatus: "pending",
+          // 先行合成が終わっていれば、投稿の時点で合成済みとして作る(待ち時間ゼロ)。
+          composedImageUrl: readyUrl ?? null,
+          composeStatus: readyUrl ? "ready" : "pending",
         });
       }
 
@@ -278,8 +346,13 @@ export default function CreatePostPage() {
 
       // AI合成は課金状況に左右されるので、失敗しても投稿は成立させる。
       // 合成できない間は顔写真+服の写真をそのまま並べて表示する(OutfitCard)。
+      // 先行合成が済んでいない候補だけ通常ルートで合成する。先行合成が処理中なら
+      // サーバー側のキャッシュロックが待ち合わせるので、二重にGeminiを呼ぶことはない。
+      const pendingIndexes = candidates
+        .map((c, index) => (c.composeStatus === "pending" ? index : -1))
+        .filter((index) => index >= 0);
       void Promise.allSettled(
-        candidates.map((_, index) => composeOutfitImage({ postId: post.id, candidateIndex: index }))
+        pendingIndexes.map((index) => composeOutfitImage({ postId: post.id, candidateIndex: index }))
       );
 
       router.push("/vote");
@@ -616,20 +689,35 @@ export default function CreatePostPage() {
 
       <div className="mx-auto max-w-lg px-4 pb-32 pt-4">
         <div className="mb-6 grid grid-cols-2 gap-3">
-          {([0, 1] as Slot[]).map((s) => (
-            <div key={s} className="rounded-2xl border border-border bg-surface p-2">
-              <p className="mb-1.5 text-center text-xs font-bold">候補{s === 0 ? "A" : "B"}</p>
-              <div className="grid grid-cols-2 gap-1">
-                {selectedItems(s)
-                  .slice(0, 4)
-                  .map((item) => (
-                    <div key={item.id} className="relative aspect-square overflow-hidden rounded-lg bg-surface-muted">
-                      <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
-                    </div>
-                  ))}
+          {([0, 1] as Slot[]).map((s) => {
+            const sig = draftSignature(drafts[s]);
+            const composed = sig ? precomposed[sig] : undefined;
+            return (
+              <div key={s} className="rounded-2xl border border-border bg-surface p-2">
+                <p className="mb-1.5 text-center text-xs font-bold">候補{s === 0 ? "A" : "B"}</p>
+                <div className="grid grid-cols-2 gap-1">
+                  {selectedItems(s)
+                    .slice(0, 4)
+                    .map((item) => (
+                      <div key={item.id} className="relative aspect-square overflow-hidden rounded-lg bg-surface-muted">
+                        <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
+                      </div>
+                    ))}
+                </div>
+                {/* 顔を選ぶと、入力の裏でAI合成を先に進めておく(投稿時の待ちを無くすため)。 */}
+                {sig && (
+                  <p
+                    className={`mt-1.5 flex items-center justify-center gap-1 text-[10px] font-semibold ${
+                      composed ? "text-accent" : "text-muted-foreground"
+                    }`}
+                  >
+                    <IconSparkles className={`h-3 w-3 ${composed ? "" : "animate-pulse"}`} />
+                    {composed ? "AI合成できました" : "AI合成を先に進めています…"}
+                  </p>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="mb-6">

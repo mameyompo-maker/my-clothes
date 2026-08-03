@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, type DocumentReference } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
@@ -32,6 +33,125 @@ interface ClosetItemDoc {
 
 interface FacePatternDoc {
   imageUrl: string;
+  ownerUid?: string;
+}
+
+// ---------- 合成キャッシュ ----------
+// 同じ「顔 × 服の組み合わせ × 本人プロフィール × モデル」なら結果を使い回す。
+// 目的は2つ: (1) 先行合成(precomposeOutfit)と投稿後の合成(composeOutfitImage)が
+// 同じ組み合わせを二重にGeminiへ投げないようにする (2) 取り消して作り直した場合や
+// 同じコーデをまた着る場合に、待ち時間ゼロ・トークン消費ゼロで返す。
+
+interface ComposedCacheDoc {
+  status: "pending" | "ready" | "failed";
+  url: string | null;
+  ownerUid: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** pending がこの時間を超えて放置されていたら、前の呼び出しが死んだとみなして引き取る。 */
+const PENDING_STALE_MS = 150_000;
+
+/**
+ * 1日あたりの新規Gemini呼び出し回数の上限(キャッシュヒットは消費しない)。
+ * 先行合成は投稿前でも呼べるため、「2択は1日1回」の制限だけでは合成回数を縛れない。
+ * 1枚約10円なので、この上限が1日あたりの最大コスト(約200円/人)になる。
+ */
+const DAILY_COMPOSE_LIMIT = 20;
+
+function jstDateString(): string {
+  return new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * キャッシュキー。アイテムは画像URLで見る(IDではなく)ので、同じ写真の組み合わせなら
+ * 何度作り直しても同じキーになる。プロフィール(personalHint)とモデル名も混ぜてあり、
+ * 身長や骨格を変えた・モデルを切り替えた場合は自然に別キー=作り直しになる。
+ */
+function cacheKeyFor(uid: string, itemImageUrls: string[], faceImageUrl: string, personalHint: string): string {
+  const payload = [GEMINI_IMAGE_MODEL, uid, faceImageUrl, ...[...itemImageUrls].sort(), personalHint].join("\n");
+  return createHash("sha256").update(payload).digest("hex").slice(0, 40);
+}
+
+/** 1日の合成回数を1消費する。上限に達していたら resource-exhausted を投げる。 */
+async function acquireComposeSlot(uid: string): Promise<void> {
+  const ref = db.collection("composeQuota").doc(uid);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const today = jstDateString();
+    const data = snap.exists ? (snap.data() as { date?: string; count?: number }) : null;
+    const count = data?.date === today ? (data.count ?? 0) : 0;
+    if (count >= DAILY_COMPOSE_LIMIT) {
+      throw new HttpsError("resource-exhausted", "今日のAI合成の回数上限に達しました。明日また使えます。");
+    }
+    tx.set(ref, { date: today, count: count + 1 });
+  });
+}
+
+/**
+ * キャッシュを見てから合成する本体。全ての合成はここを通すこと。
+ *
+ * - ready ならそのURLを即返す(Gemini呼び出しなし)
+ * - 誰かが pending 中なら終わるのを待って結果をもらう(二重合成の防止)
+ * - どちらでもなければ自分が pending を立てて合成する
+ */
+async function composeCached(
+  uid: string,
+  itemImageUrls: string[],
+  faceImageUrl: string,
+  personalHint: string
+): Promise<string> {
+  const key = cacheKeyFor(uid, itemImageUrls, faceImageUrl, personalHint);
+  const ref = db.collection("composedCache").doc(key);
+
+  const first = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.exists ? (snap.data() as ComposedCacheDoc) : null;
+    if (data?.status === "ready" && data.url) return { mode: "ready" as const, url: data.url };
+    if (data?.status === "pending" && Date.now() - data.updatedAt < PENDING_STALE_MS) {
+      return { mode: "wait" as const, url: null };
+    }
+    tx.set(ref, {
+      status: "pending",
+      url: null,
+      ownerUid: uid,
+      createdAt: data?.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+    });
+    return { mode: "compose" as const, url: null };
+  });
+
+  if (first.mode === "ready" && first.url) return first.url;
+
+  if (first.mode === "wait") {
+    // 同じ組み合わせを別の呼び出し(たいてい先行合成)が処理中。待って結果をもらう。
+    const deadline = Date.now() + 100_000;
+    while (Date.now() < deadline) {
+      await sleep(2500);
+      const snap = await ref.get();
+      const data = snap.exists ? (snap.data() as ComposedCacheDoc) : null;
+      if (data?.status === "ready" && data.url) return data.url;
+      if (data?.status === "failed") break;
+      if (data?.status === "pending" && Date.now() - data.updatedAt >= PENDING_STALE_MS) break;
+    }
+    // 待っていた相手が失敗した・止まっている。自分で引き取って合成する。
+    await ref.set({ status: "pending", ownerUid: uid, updatedAt: Date.now() }, { merge: true });
+  }
+
+  try {
+    await acquireComposeSlot(uid);
+    const url = await composeWithGemini(itemImageUrls, faceImageUrl, uid, key, personalHint);
+    await ref.set({ status: "ready", url, ownerUid: uid, updatedAt: Date.now() }, { merge: true });
+    return url;
+  } catch (err) {
+    await ref.set({ status: "failed", url: null, ownerUid: uid, updatedAt: Date.now() }, { merge: true });
+    throw err;
+  }
 }
 
 interface OutfitCandidateDoc {
@@ -165,20 +285,69 @@ export const composeOutfitImage = onCall<{ postId: string; candidateIndex: numbe
         profile = null;
       }
 
-      const composedImageUrl = await composeWithGemini(
-        itemImageUrls,
-        faceImageUrl,
-        uid,
-        postId,
-        candidateIndex,
-        buildPersonalHint(profile)
-      );
+      const composedImageUrl = await composeCached(uid, itemImageUrls, faceImageUrl, buildPersonalHint(profile));
       await patchCandidate(postRef, candidateIndex, { composedImageUrl, composeStatus: "ready" });
       return { composedImageUrl };
     } catch (err) {
       await patchCandidate(postRef, candidateIndex, { composedImageUrl: null, composeStatus: "failed" });
+      if (err instanceof HttpsError) throw err;
       throw new HttpsError("internal", err instanceof Error ? err.message : "画像合成に失敗しました。");
     }
+  }
+);
+
+// ---------- precomposeOutfit(先行合成) ----------
+// 投稿を作る前に、服+顔の組み合わせだけで合成を始めるための呼び出し。
+// コーデ作成の「仕上げ」ステップに入った時点でクライアントが叩き、本人が気分や
+// 共有相手を入力している裏で合成を済ませておく。結果はキャッシュに載るので、
+// 投稿確定時の composeOutfitImage はキャッシュヒットして即座に返る。
+export const precomposeOutfit = onCall<{
+  itemIds: string[];
+  facePatternId: string | null;
+  liveCaptureUrl: string | null;
+}>(
+  { region: FUNCTION_REGION, secrets: [geminiApiKey], timeoutSeconds: 120, memory: "512MiB" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "サインインが必要です。");
+
+    const { itemIds, facePatternId, liveCaptureUrl } = request.data;
+    if (!Array.isArray(itemIds) || itemIds.length === 0 || itemIds.length > 10 || itemIds.some((x) => typeof x !== "string")) {
+      throw new HttpsError("invalid-argument", "アイテムの指定が不正です。");
+    }
+
+    const itemDocs = await Promise.all(itemIds.map((id) => db.collection("closetItems").doc(id).get()));
+    const itemImageUrls = itemDocs.filter((d) => d.exists).map((d) => (d.data() as ClosetItemDoc).imageUrl);
+    if (itemImageUrls.length === 0) throw new HttpsError("invalid-argument", "アイテムが見つかりません。");
+
+    let faceImageUrl: string | null = null;
+    if (typeof liveCaptureUrl === "string" && liveCaptureUrl) {
+      // 自分のアップロード領域(outfits/{uid}/)のURL以外は受け付けない。
+      // ここを検証しないと、任意のURLの画像で他人になりすました合成ができてしまう。
+      if (!liveCaptureUrl.startsWith("https://") || !decodeURIComponent(liveCaptureUrl).includes(`/outfits/${uid}/`)) {
+        throw new HttpsError("permission-denied", "顔写真のURLが不正です。");
+      }
+      faceImageUrl = liveCaptureUrl;
+    } else if (typeof facePatternId === "string" && facePatternId) {
+      const faceSnap = await db.collection("facePatterns").doc(facePatternId).get();
+      const face = faceSnap.exists ? (faceSnap.data() as FacePatternDoc) : null;
+      if (!face || face.ownerUid !== uid) {
+        throw new HttpsError("permission-denied", "自分の顔パターンだけ使えます。");
+      }
+      faceImageUrl = face.imageUrl;
+    }
+    if (!faceImageUrl) throw new HttpsError("invalid-argument", "顔写真がありません。");
+
+    let profile: UserProfileDoc | null = null;
+    try {
+      const userSnap = await db.collection("users").doc(uid).get();
+      if (userSnap.exists) profile = userSnap.data() as UserProfileDoc;
+    } catch {
+      profile = null;
+    }
+
+    const composedImageUrl = await composeCached(uid, itemImageUrls, faceImageUrl, buildPersonalHint(profile));
+    return { composedImageUrl };
   }
 );
 
@@ -208,8 +377,7 @@ async function composeWithGemini(
   itemImageUrls: string[],
   faceImageUrl: string,
   ownerUid: string,
-  postId: string,
-  candidateIndex: number,
+  cacheKey: string,
   personalHint = ""
 ): Promise<string> {
   const images = await Promise.all([faceImageUrl, ...itemImageUrls].map(fetchAsBase64));
@@ -252,7 +420,9 @@ async function composeWithGemini(
 
   const buffer = Buffer.from(inlinePart.inlineData.data, "base64");
   const bucket = getStorage().bucket();
-  const path = `composed/${ownerUid}/${postId}_${candidateIndex}.png`;
+  // キャッシュキーをそのままファイル名にする。同じ組み合わせは同じパスに落ち、
+  // 投稿とは独立に(取り消し・作り直しをまたいで)使い回せる。
+  const path = `composed/${ownerUid}/${cacheKey}.png`;
   const file = bucket.file(path);
   await file.save(buffer, { contentType: inlinePart.inlineData.mimeType ?? "image/png" });
   await file.makePublic();

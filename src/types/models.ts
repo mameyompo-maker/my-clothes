@@ -153,6 +153,11 @@ export interface UserProfile {
    * 自己申告で有料機能が開けてしまわないようにするため。
    */
   plan?: PlanTier;
+  /**
+   * 値段を見たコーデの記録(無料プランの1日上限を数えるため)。
+   * date が今日でなければ数え直す。同じ投稿をもう一度見るのは消費しない。
+   */
+  priceViews?: { date: string; postIds: string[] };
 }
 
 export type PlanTier = "free" | "premium";
@@ -202,6 +207,47 @@ export interface ClosetItem {
    * 投稿側では本人が足したタグと合流させる(`mergeHashtags`)。
    */
   hashtags?: string[];
+  /**
+   * 値段(円)。null / undefined は未入力。
+   *
+   * 注意: closetItems はサインイン済みなら誰でも読める設計なので、値段の
+   * 「1日1コーデまで」の閲覧制限は画面側の制御であり、暗号的な秘匿ではない。
+   * 1日1回制限などと同じ扱いで、数人の友達で使う規模ではこれで十分という判断。
+   */
+  price?: number | null;
+  /**
+   * 値段を他の人にも見せるか。既定は false(自分だけが見られる)。
+   * 公開しても、見る側は無料プランだと1日1コーデぶんまで(プレミアムは無制限)。
+   */
+  pricePublic?: boolean;
+  /**
+   * お気に入り。クローゼットと服選びの一覧で先頭に浮かせる。
+   * よく着る服ほど早く手に取れるようにして、選ぶ時間を削るための印。
+   */
+  favorite?: boolean;
+}
+
+/** 値段の表示形式。「¥12,800」。 */
+export function formatPrice(price: number): string {
+  return `¥${price.toLocaleString("ja-JP")}`;
+}
+
+/** 値段入力("3,990"「¥3990」「3990円」など)を数値へ。空・不正な入力は null。 */
+export function parsePrice(input: string): number | null {
+  const cleaned = input.replace(/[¥,\s円]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n < 0 || n > 100_000_000) return null;
+  return Math.round(n);
+}
+
+/** 無料プランが1日に値段を見られるコーデ(投稿)の数。プレミアムは無制限。 */
+export const FREE_PRICE_VIEWS_PER_DAY = 1;
+
+/** 端末ローカルの今日の日付("2026-08-04")。値段閲覧の1日カウントに使う。 */
+export function localDateString(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 /**
@@ -336,7 +382,23 @@ export interface Vote {
   candidateIndex: number;
   voterUid: string;
   createdAt: number;
+  /** 選んだ理由(任意)。投票のあとにワンタップで添えられる。 */
+  reason?: VoteReason | null;
 }
+
+/**
+ * 投票理由のスタンプ。コメントより軽い「ワンタップの理由」。
+ * 投稿主が「なぜこっちが人気なのか」を納得して決められるようにするためのもので、
+ * 2択の意思決定を速くするというアプリの目的に直接効く。
+ */
+export type VoteReason = "color" | "season" | "plan" | "vibe";
+
+export const VOTE_REASONS: { value: VoteReason; label: string; emoji: string }[] = [
+  { value: "color", label: "色がすき", emoji: "🎨" },
+  { value: "season", label: "気温に合ってる", emoji: "🌤️" },
+  { value: "plan", label: "予定に合ってる", emoji: "📅" },
+  { value: "vibe", label: "なんか良い", emoji: "✨" },
+];
 
 // ---------------------------------------------------------------------------
 // 全身写真の投稿(WEAR / Instagram 相当。友達ゼロでも公開できる)

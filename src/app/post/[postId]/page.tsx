@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { addComment, getStylePost, updateStylePost, watchComments } from "@/lib/firestore";
+import { addComment, getClosetItemsByIds, getStylePost, updateStylePost, watchComments } from "@/lib/firestore";
 import {
   SEASONS,
   STYLE_GENRES,
+  type ClosetItem,
   type ItemTag,
   type PostComment,
   type PostVisibility,
@@ -15,6 +16,7 @@ import {
   type StylePost,
 } from "@/types/models";
 import { StylePostCard } from "@/components/StylePostCard";
+import { PricePanel } from "@/components/PricePanel";
 import {
   Avatar,
   BottomSheet,
@@ -37,6 +39,8 @@ export default function StylePostDetailPage() {
   const [post, setPost] = useState<StylePost | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [comments, setComments] = useState<PostComment[]>([]);
+  // 値段表示に使う、タグ付けされた服の実体。タグは itemId しか持たないため引き直す。
+  const [taggedItems, setTaggedItems] = useState<ClosetItem[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -47,6 +51,8 @@ export default function StylePostDetailPage() {
     getStylePost(postId).then((p) => {
       setPost(p);
       if (!p) setNotFound(true);
+      const ids = (p?.itemTags ?? []).map((t) => t.itemId).filter((id): id is string => Boolean(id));
+      if (ids.length > 0) getClosetItemsByIds(ids).then(setTaggedItems);
     });
   }, [postId]);
 
@@ -105,6 +111,12 @@ export default function StylePostDetailPage() {
         ) : (
           <div className="px-4 pt-4">
             <Skeleton className="h-[420px]" />
+          </div>
+        )}
+
+        {post && taggedItems.length > 0 && (
+          <div className="px-4 pt-3">
+            <PricePanel postId={post.id} ownerUid={post.ownerUid} groups={[{ title: null, items: taggedItems }]} />
           </div>
         )}
 

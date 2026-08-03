@@ -131,6 +131,7 @@ function UpgradeContent() {
                 <Benefit>主役の1着から残りを自動で組む</Benefit>
                 <Benefit>季節・好みのジャンル・着ていない期間をふまえた提案</Benefit>
                 <Benefit>今日の2択を何回でも取り消してやり直せる</Benefit>
+                <Benefit>みんなのコーデの値段を制限なく見られる</Benefit>
               </ul>
             </section>
 
@@ -140,7 +141,8 @@ function UpgradeContent() {
                 <Benefit>2択を作って友達に選んでもらう(1日1回)</Benefit>
                 <Benefit>今日の2択の取り消し(1日1回まで)</Benefit>
                 <Benefit>AIによる着用イメージの生成</Benefit>
-                <Benefit>クローゼットの登録・タグ付け・絞り込み</Benefit>
+                <Benefit>クローゼットの登録・タグ付け・絞り込み・値段の記録</Benefit>
+                <Benefit>みんなのコーデの値段を見る(1日1コーデまで)</Benefit>
                 <Benefit>全身写真の投稿、いいね、コメント、フォロー、DM</Benefit>
                 <Benefit>1ヶ月のコーデ記録</Benefit>
               </ul>
