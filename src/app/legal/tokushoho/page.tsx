@@ -14,11 +14,14 @@ import { IconChevronLeft } from "@/components/icons";
  */
 
 const ROWS: { label: string; value: string | null; note?: string }[] = [
-  { label: "販売事業者", value: null, note: "個人事業なら氏名、法人なら登記上の名称" },
-  { label: "運営責任者", value: null },
-  { label: "所在地", value: null, note: "請求があったら遅滞なく開示できる状態にしておく" },
-  { label: "連絡先", value: null, note: "メールアドレス。電話番号は請求時に開示でも可" },
-  { label: "販売価格", value: null, note: "税込表示。Stripe に設定した金額と一致させる" },
+  { label: "販売事業者", value: "河村和仁" },
+  { label: "運営責任者", value: "河村和仁" },
+  { label: "所在地", value: "東京都府中市幸町2-9-5 グランディオ府中202号室" },
+  {
+    label: "連絡先",
+    value: "mameyompo@gmail.com(電話番号はご請求があれば遅滞なく開示いたします)",
+  },
+  { label: "販売価格", value: "月額330円(税込)" },
   { label: "商品代金以外の必要料金", value: "通信料はお客様のご負担となります。" },
   { label: "支払方法", value: "クレジットカード(Stripe による決済)" },
   { label: "支払時期", value: "お申し込み時に初回課金、以降は毎月同日に自動更新" },
