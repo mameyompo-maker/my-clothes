@@ -39,7 +39,7 @@ export function SuggestedUsers({ compact = false }: { compact?: boolean }) {
     // 先に画面を動かす。フォローは失敗しても致命的ではないので、待たせない。
     setFollowed((prev) => new Set(prev).add(targetUid));
     try {
-      await followUser(user.uid, targetUid);
+      await followUser(user.uid, targetUid, profile);
       await refreshProfile();
     } catch {
       setFollowed((prev) => {

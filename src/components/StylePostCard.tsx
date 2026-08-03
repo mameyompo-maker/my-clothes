@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { hasLiked, toggleLike } from "@/lib/firestore";
+import { useAuth } from "./AuthProvider";
 import { buildOutboundUrl, SEASONS, STYLE_GENRES, type StylePost } from "@/types/models";
 import { saveImage, sharePost } from "@/lib/share";
 import { Avatar, timeAgo } from "./ui";
@@ -14,6 +15,7 @@ import { IconComment, IconHeart, IconHeartFilled, IconTag } from "./icons";
  * 写真をタップするとタグの表示/非表示が切り替わる。
  */
 export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string | null }) {
+  const { profile } = useAuth();
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [showTags, setShowTags] = useState(false);
@@ -36,7 +38,7 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
       setTimeout(() => setBurst(false), 340);
     }
     try {
-      await toggleLike(post.id, myUid);
+      await toggleLike(post.id, myUid, profile);
     } catch {
       setLiked(!next);
       setLikeCount((c) => c + (next ? -1 : 1));

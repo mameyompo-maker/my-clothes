@@ -56,6 +56,18 @@ service cloud.firestore {
             || request.resource.data.followerCount == resource.data.followerCount - 1);
     }
 
+    // notifications: 受信箱。行為者(いいねを押した人など)が相手の箱に直接書く。
+    // Cloud Functions を挟まずに済ませるかわり、書ける中身をここで縛る。
+    match /notifications/{recipientUid}/items/{itemId} {
+      allow read, delete: if isSignedIn() && me() == recipientUid;
+      // 自分が actor である通知だけ、他人の箱に入れられる。
+      // 自分自身への通知は無意味なので弾く。
+      allow create: if isSignedIn()
+        && request.resource.data.actorUid == me()
+        && recipientUid != me();
+      allow update: if false;
+    }
+
     // blocks: 自分がブロックした記録。ID を blocker__blocked に固定しているので、
     // 自分のものかどうかは ID から判定でき、余計な読み取りが要らない。
     // ブロックされた側からは読めない(ブロックされたことを気付かせないため)。

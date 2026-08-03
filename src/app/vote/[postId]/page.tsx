@@ -23,7 +23,7 @@ import { IconCamera, IconCheck, IconChevronLeft } from "@/components/icons";
 export default function VoteDetailPage() {
   const { postId } = useParams<{ postId: string }>();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [post, setPost] = useState<OutfitPost | null>(null);
   const [owner, setOwner] = useState<UserProfile | null>(null);
@@ -85,7 +85,7 @@ export default function VoteDetailPage() {
     if (!user || myVote || expired || isOwner) return;
     setBusy(true);
     try {
-      await castVote(postId, index, user.uid);
+      await castVote(postId, index, user.uid, profile);
     } finally {
       setBusy(false);
     }

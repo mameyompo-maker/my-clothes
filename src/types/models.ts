@@ -138,6 +138,8 @@ export interface UserProfile {
    * 未設定なら見本の出し分けをしない(全部出す)。
    */
   primaryWardrobe?: Wardrobe;
+  /** 通知をどこまで読んだか。未読数を数えるためだけの値。 */
+  lastReadNotificationAt?: number;
   /**
    * 公式・認証済みアカウント。ブランドや事務所の公式、スカウト対象のモデルなどに付ける。
    *
@@ -454,6 +456,46 @@ export interface ChatThread {
   lastMessage: string;
   lastMessageAt: number;
   lastSenderUid: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// 通知
+// ---------------------------------------------------------------------------
+
+export type NotificationType = "like" | "comment" | "follow" | "vote";
+
+/**
+ * 通知。`notifications/{recipientUid}/items/{id}` に置く。
+ *
+ * **行為者(いいねを押した人)が相手の受信箱に直接書く。**Cloud Functions を挟むより
+ * 速く、無料枠も使わない。書き込みはルールで「自分が actor である1件だけ」に縛る。
+ * 反応があったことを本人に伝えない SNS は、投稿しても無風に感じて離脱するので、
+ * これは体験の飾りではなく土台に近い。
+ */
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  actorUid: string;
+  actorName: string;
+  actorAvatarUrl: string | null;
+  /** 対象の投稿。フォロー通知では null。 */
+  postId: string | null;
+  /** 一覧に出す短い本文。受信時点の文言を焼き込んでおく。 */
+  text: string;
+  createdAt: number;
+}
+
+export function notificationText(type: NotificationType, actorName: string): string {
+  switch (type) {
+    case "like":
+      return `${actorName}さんがあなたの投稿にいいねしました`;
+    case "comment":
+      return `${actorName}さんがあなたの投稿にコメントしました`;
+    case "follow":
+      return `${actorName}さんがあなたをフォローしました`;
+    case "vote":
+      return `${actorName}さんがあなたの2択に投票しました`;
+  }
 }
 
 // ---------------------------------------------------------------------------

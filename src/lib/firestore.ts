@@ -29,6 +29,9 @@ import {
   type ChatThread,
   BODY_TYPES,
   normalizeHashtag,
+  notificationText,
+  type AppNotification,
+  type NotificationType,
   PERSONAL_COLORS,
   STYLE_GENRES,
   type ClosetCategory,
@@ -164,6 +167,7 @@ export type ProfileEditableFields = Pick<
   | "avatarUrl"
   | "favoritePostIds"
   | "primaryWardrobe"
+  | "lastReadNotificationAt"
 >;
 
 export async function updateUserProfile(uid: string, patch: Partial<ProfileEditableFields>): Promise<void> {
@@ -239,6 +243,55 @@ export async function redeemInviteCode(myUid: string, rawCode: string): Promise<
   return { friendUid, friendName: (friendDoc.data() as UserProfile).name ?? "友達" };
 }
 
+
+
+// ---------- Notifications ----------
+
+/**
+ * 通知を1件送る。行為者側から相手の受信箱に直接書く。
+ *
+ * **失敗しても呼び出し元を巻き込まない。**いいねやフォローの本処理が
+ * 通知の失敗で巻き戻るのは本末転倒なので、送信は投げっぱなしにする。
+ */
+export async function sendNotification(
+  recipientUid: string,
+  actor: UserProfile,
+  type: NotificationType,
+  postId: string | null
+): Promise<void> {
+  if (recipientUid === actor.uid) return; // 自分の行為で自分に通知しない
+  const database = requireDb();
+  const id = crypto.randomUUID();
+  const notification: AppNotification = {
+    id,
+    type,
+    actorUid: actor.uid,
+    actorName: actor.name,
+    actorAvatarUrl: actor.avatarUrl ?? null,
+    postId,
+    text: notificationText(type, actor.name),
+    createdAt: Date.now(),
+  };
+  await setDoc(doc(database, "notifications", recipientUid, "items", id), notification);
+}
+
+export function watchNotifications(
+  myUid: string,
+  onChange: (items: AppNotification[]) => void
+): Unsubscribe {
+  const database = requireDb();
+  const q = query(
+    collection(database, "notifications", myUid, "items"),
+    orderBy("createdAt", "desc"),
+    limit(80)
+  );
+  return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as AppNotification)));
+}
+
+/** 既読にする。件数を持たず「どこまで読んだか」の時刻だけで数えるので、書き込みは1回で済む。 */
+export async function markNotificationsRead(myUid: string): Promise<void> {
+  await updateUserProfile(myUid, { lastReadNotificationAt: Date.now() });
+}
 
 // ---------- Blocks / Reports ----------
 
@@ -359,7 +412,7 @@ export async function suggestUsersToFollow(
 
 // ---------- Follows ----------
 
-export async function followUser(myUid: string, targetUid: string): Promise<void> {
+export async function followUser(myUid: string, targetUid: string, actor?: UserProfile | null): Promise<void> {
   if (myUid === targetUid) throw new Error("自分自身はフォローできません。");
   const database = requireDb();
   const id = followId(myUid, targetUid);
@@ -371,6 +424,8 @@ export async function followUser(myUid: string, targetUid: string): Promise<void
   // カウンタは表示専用の非正規化値。多少ずれても機能は壊れないので個別更新でよい。
   await updateDoc(doc(database, "users", myUid), { followingCount: increment(1) });
   await updateDoc(doc(database, "users", targetUid), { followerCount: increment(1) });
+
+  if (actor) void sendNotification(targetUid, actor, "follow", null).catch(() => {});
 
   // 相手も自分をフォローしていたら相互フォロー成立 = 友達。
   if ((await getDoc(doc(database, "follows", followId(targetUid, myUid)))).exists()) {
@@ -749,10 +804,21 @@ export async function listMyOutfitPosts(myUid: string): Promise<OutfitPost[]> {
 
 // ---------- Votes ----------
 
-export async function castVote(postId: string, candidateIndex: number, voterUid: string): Promise<void> {
+export async function castVote(
+  postId: string,
+  candidateIndex: number,
+  voterUid: string,
+  voter?: UserProfile | null
+): Promise<void> {
   const database = requireDb();
   const vote: Vote = { id: voterUid, postId, candidateIndex, voterUid, createdAt: Date.now() };
   await setDoc(doc(database, "outfitPosts", postId, "votes", voterUid), vote);
+
+  if (voter) {
+    void getOutfitPost(postId).then((post) => {
+      if (post) void sendNotification(post.ownerUid, voter, "vote", null).catch(() => {});
+    });
+  }
 }
 
 export function watchVotes(postId: string, onChange: (votes: Vote[]) => void): Unsubscribe {
@@ -918,7 +984,7 @@ export async function getStylePostsByIds(ids: string[]): Promise<StylePost[]> {
 
 // ---------- Likes / Comments ----------
 
-export async function toggleLike(postId: string, uid: string): Promise<boolean> {
+export async function toggleLike(postId: string, uid: string, actor?: UserProfile | null): Promise<boolean> {
   const database = requireDb();
   const likeRef = doc(database, "stylePosts", postId, "likes", uid);
   const exists = (await getDoc(likeRef)).exists();
@@ -929,6 +995,13 @@ export async function toggleLike(postId: string, uid: string): Promise<boolean> 
   }
   await setDoc(likeRef, { id: uid, postId, uid, createdAt: Date.now() });
   await updateDoc(doc(database, "stylePosts", postId), { likeCount: increment(1) });
+
+  // 通知は投げっぱなし。失敗しても「いいね」自体は成立させる。
+  if (actor) {
+    void getStylePost(postId).then((post) => {
+      if (post) void sendNotification(post.ownerUid, actor, "like", postId).catch(() => {});
+    });
+  }
   return true;
 }
 
@@ -955,6 +1028,10 @@ export async function addComment(
   };
   await setDoc(doc(database, "stylePosts", postId, "comments", id), comment);
   await updateDoc(doc(database, "stylePosts", postId), { commentCount: increment(1) });
+
+  void getStylePost(postId).then((post) => {
+    if (post) void sendNotification(post.ownerUid, author, "comment", postId).catch(() => {});
+  });
   return comment;
 }
 

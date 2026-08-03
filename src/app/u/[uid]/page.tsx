@@ -45,7 +45,7 @@ import { IconChevronLeft, IconGrid, IconMessage } from "@/components/icons";
 export default function UserProfilePage() {
   const { uid } = useParams<{ uid: string }>();
   const router = useRouter();
-  const { user, refreshProfile, hiddenUids, refreshBlocks } = useAuth();
+  const { user, profile: myProfile, refreshProfile, hiddenUids, refreshBlocks } = useAuth();
 
   const [target, setTarget] = useState<UserProfile | null>(null);
   const [safetyOpen, setSafetyOpen] = useState(false);
@@ -87,7 +87,7 @@ export default function UserProfilePage() {
     setFollowing(next);
     setTarget((t) => (t ? { ...t, followerCount: (t.followerCount ?? 0) + (next ? 1 : -1) } : t));
     try {
-      if (next) await followUser(user.uid, uid);
+      if (next) await followUser(user.uid, uid, myProfile);
       else await unfollowUser(user.uid, uid);
       await refreshProfile();
     } catch {

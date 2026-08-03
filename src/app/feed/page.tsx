@@ -3,19 +3,20 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
-import { listClosetItems, watchPublicStylePosts } from "@/lib/firestore";
+import { listClosetItems, watchNotifications, watchPublicStylePosts } from "@/lib/firestore";
 import { recommendHeadline } from "@/lib/recommend";
 import type { StylePost } from "@/types/models";
 import { StylePostCard } from "@/components/StylePostCard";
 import { WeatherBar } from "@/components/WeatherBar";
 import { SuggestedUsers } from "@/components/SuggestedUsers";
 import { EmptyState, IconButton, PrimaryButton, Skeleton, TopBar } from "@/components/ui";
-import { IconMessage, IconSearch, IconSparkles } from "@/components/icons";
+import { IconHeart, IconMessage, IconSearch, IconSparkles } from "@/components/icons";
 
 export default function HomeFeedPage() {
   const { user, profile, hiddenUids } = useAuth();
   const [posts, setPosts] = useState<StylePost[] | null>(null);
   const [itemCount, setItemCount] = useState(0);
+  const [unread, setUnread] = useState(0);
 
   useEffect(() => {
     // ブロックした相手・自分をブロックした相手の投稿はフィードから外す。
@@ -30,12 +31,32 @@ export default function HomeFeedPage() {
     listClosetItems(user.uid).then((items) => setItemCount(items.length));
   }, [user]);
 
+  // 未読数は「最後に読んだ時刻より新しい通知の件数」。件数を別に持たないので、
+  // どの端末で読んでも数がずれない。
+  useEffect(() => {
+    if (!user) return;
+    return watchNotifications(user.uid, (list) => {
+      const lastRead = profile?.lastReadNotificationAt ?? 0;
+      setUnread(list.filter((n) => n.createdAt > lastRead && !hiddenUids.has(n.actorUid)).length);
+    });
+  }, [user, profile?.lastReadNotificationAt, hiddenUids]);
+
   return (
     <>
       <TopBar
         left={<span className="gradient-text text-xl font-extrabold tracking-tight">My Clothes</span>}
         right={
           <>
+            <Link href="/activity" aria-label="お知らせ" className="relative">
+              <IconButton label="お知らせ">
+                <IconHeart className="h-5 w-5" />
+              </IconButton>
+              {unread > 0 && (
+                <span className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-accent-foreground">
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
+            </Link>
             <Link href="/search" aria-label="さがす">
               <IconButton label="さがす">
                 <IconSearch className="h-5 w-5" />
