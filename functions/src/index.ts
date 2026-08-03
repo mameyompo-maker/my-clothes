@@ -7,6 +7,10 @@ import { defineSecret } from "firebase-functions/params";
 initializeApp();
 const db = getFirestore();
 
+// 課金まわり(Stripe)は billing.ts に分離している。ここから再輸出することで
+// firebase deploy の対象に含める。
+export { createBillingPortalSession, createCheckoutSession, stripeWebhook } from "./billing.js";
+
 const geminiApiKey = defineSecret("GEMINI_API_KEY");
 
 // クライアント側 (src/lib/functions.ts の CALLABLE_REGION) と必ず同じ値にすること。

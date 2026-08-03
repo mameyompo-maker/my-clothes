@@ -33,3 +33,20 @@ export async function composeOutfitImage(input: ComposeOutfitImageInput): Promis
   const result = await call(input);
   return result.data;
 }
+
+/**
+ * Stripe の決済ページのURLを受け取る。カード情報はこちらのアプリを一切通らず、
+ * Stripe のホストするページで入力される。
+ */
+export async function createCheckoutSession(): Promise<string> {
+  const call = httpsCallable<Record<string, never>, { url: string }>(functions(), "createCheckoutSession");
+  const result = await call({});
+  return result.data.url;
+}
+
+/** 解約・支払い方法の変更を行う Stripe カスタマーポータルのURL。 */
+export async function createBillingPortalSession(): Promise<string> {
+  const call = httpsCallable<Record<string, never>, { url: string }>(functions(), "createBillingPortalSession");
+  const result = await call({});
+  return result.data.url;
+}
