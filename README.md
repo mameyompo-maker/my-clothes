@@ -126,14 +126,16 @@ Vercelの無料枠(Hobbyプラン)で公開できる。課金は発生しない�
 
 ### AI合成の現状(2026-08-03 時点)
 
-**コード側の不具合は解消済みだが、Gemini の支払いが止まっているため合成は実行できない。**
+**動作する。** 過去に一度も動いていなかった不具合を解消し、クレジット追加後に実機で画像生成を確認済み。
+経緯は以下のとおり(同じ問題を疑うときの手がかりとして残す)。
 
 - 過去に一度も動いていなかった原因は2つ。①クライアントが `asia-northeast1`、関数が `us-central1` に
   デプロイされていてエンドポイントが存在しなかった ②Secret Manager の `GEMINI_API_KEY` が壊れた値
   (32文字・`AIza`始まりでない・空白混入)で `API_KEY_INVALID` だった。いずれも修正済み。
-- 残る障害は課金のみ。Gemini API は AI Studio 側の**前払いクレジット**で動いており、それが枯渇している
-  (`429 RESOURCE_EXHAUSTED: Your prepayment credits are depleted`)。Firebase の Blaze 課金とは別勘定。
-  https://ai.studio/projects でクレジットを追加すれば、コード変更なしで動き出す。
+- 修正後も一時 `429 RESOURCE_EXHAUSTED: Your prepayment credits are depleted` で止まっていた。
+  Gemini API は AI Studio 側の**前払いクレジット**で動いており、Firebase の Blaze 課金とは別勘定。
+  https://ai.studio/projects でクレジットを追加して解消済み。再び429が出たらここを疑うこと。
+- 費用の目安: `gemini-3.1-flash-image` は1枚約$0.067(約10円)。2択1回で2枚生成するので約20円。
 - **合成が無くてもアプリは完結する。** `src/components/OutfitCard.tsx` が、合成画像が無い場合に
   撮影した顔写真と選んだ服をボード状に並べて表示する。顔写真が無駄にならないようにするための作り。
 
