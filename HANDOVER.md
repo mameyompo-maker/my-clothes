@@ -2,6 +2,16 @@
 
 最終更新: 2026-08-03 / 前セッションからの引き継ぎメモ。**新しいセッションを始めたらこれを最初に読むこと。**
 
+> ### 次のセッションの始め方
+>
+> Kazさんは新しいセッションで、次のように話しかければよい:
+>
+> > 「my_clothes の続き。HANDOVER.md を読んで、まず実機確認の結果を聞いて」
+>
+> **作業は全て push 済みで、未コミットの変更は無い**(`cloth_image/` だけは意図的に
+> 追跡していない。アプリが使うのは `public/seed/` のコピーなので重複を避けている)。
+> したがって、いきなり実装に入って問題ない状態になっている。
+
 - 公開URL: https://my-clothes-three.vercel.app
 - リポジトリ: https://github.com/mameyompo-maker/my-clothes (master 直押し運用)
 - ローカル: `C:\Users\kazdr\dev\my_clothes` (**OneDrive外のローカルディスク**。同期されていない)
