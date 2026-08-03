@@ -6,7 +6,7 @@
 - リポジトリ: https://github.com/mameyompo-maker/my-clothes (master 直押し運用)
 - ローカル: `C:\Users\kazdr\dev\my_clothes` (**OneDrive外のローカルディスク**。同期されていない)
 - Firebase プロジェクト: `my-clothes-46c81`
-- 最新コミット: `1cafaea`
+- 最新コミット: `610319a`
 
 ---
 
@@ -17,16 +17,16 @@
 | アプリ本体 | 稼働中。全21ルート、lint/build ともにエラーなし |
 | Gemini AI合成 | **動く状態になった**(2026-08-03 に実機で画像生成を確認) |
 | 2択・クローゼット・投稿・フォロー・DM・カレンダー | 実装済み・デプロイ済み |
-| 課金(Stripe) | **コードのみ完成。Stripe側の設定が未着手**。ボタンは環境変数で非表示 |
-| 特定商取引法の表記 | **未記入**。埋めるまで課金開始は不可(法令違反になる) |
-| Cloud Functions | `composeOutfitImage` のみデプロイ済み。**Stripe系3関数は未デプロイ** |
+| 課金(Stripe) | **テストモードで一通り設定・デプロイ完了(2026-08-03)。残るは実機でのテスト決済のみ** |
+| 特定商取引法の表記 | **記入済み**(月額330円 税込) |
+| Cloud Functions | `composeOutfitImage` / Stripe系3関数ともデプロイ済み(すべて `us-central1`) |
 
 ### Kazさんの操作が必要に残っていること
 
-1. **Stripe アカウント作成と設定** → 手順は `BILLING_SETUP.md` に全部書いてある。テストモードなら審査を待たず試せる。
-2. **月額の金額を決める**(未決定)。
-3. **特商法の表記を埋める** → `src/app/legal/tokushoho/page.tsx` の `ROWS` で `value: null` の項目。
-4. テストキーが用意できたら、**Stripe関数のデプロイと動作確認は次のセッションで代行できる**。
+1. **テストカード `4242 4242 4242 4242` での決済確認**(下記「課金機能」の検証項目を参照)。
+2. テストが通ったあと、**本番モードへの切り替え**。Stripeの本人確認・口座登録の審査が要る。
+   商品/価格/Webhookはテストと本番で完全に別データなので、**本番モードで作り直し**が必要。
+   `sk_live_` は一度しか表示されないので、その場で控えること。
 
 ---
 
@@ -63,6 +63,16 @@ SNS機能(公開投稿・フォロー・DM)は後から足したもので、主�
 投稿ボタン・DMの入力欄・コメント欄がすべて機能不全。
 → `ActionBar` コンポーネント(`src/components/ui.tsx`)に集約し、`--nav-h` 分だけ持ち上げるようにした。
 **画面下に固定要素を足すときは必ず `ActionBar` を使うか、同じ計算で持ち上げること。**
+
+### ③' Stripe関数が「Firebase app が存在しない」でデプロイできなかった(2026-08-03)
+
+`billing.ts` がトップレベルで `getFirestore()` を呼んでいた。`index.ts` は
+`export { ... } from "./billing.js"` で再輸出しており、**ESMでは再輸出もimportと同様に巻き上げられるため、
+`index.ts` 本体の `initializeApp()` より先に `billing.ts` のトップレベルが評価される**。
+結果 `The default Firebase app does not exist` でソース解析ごと失敗していた。
+→ Firestoreの取得を関数実行時まで遅らせた(`billing.ts` の `db()`)。
+
+**新しいモジュールを作って index.ts から再輸出するときは、トップレベルで Firebase のサービスを掴まないこと。**
 
 ### ③ 全身写真の投稿が必ず失敗していた
 
@@ -154,12 +164,24 @@ SNS機能(公開投稿・フォロー・DM)は後から足したもので、主�
 **執拗な課金勧誘は絶対にしない。** 案内はロックされた項目をタップしたときの1画面だけ。
 常時表示バナー、再訪の催促、期間限定を煽る表示、閉じにくいダイアログは入れない。
 
+### 設定状況(2026-08-03 時点・すべて**テストモード**)
+- 価格: **月額330円(税込)**。Stripeには `330` で登録(Stripe Taxは未使用なので登録額がそのまま請求される)
+- price ID は `functions/.env` の `STRIPE_PRICE_ID`(このファイルは `.gitignore` の `.env*` によりコミットされない。
+  **別マシンからデプロイする場合は作り直しが必要**)
+- `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` ともSecret Managerに登録済み
+- Webhook URL: `https://us-central1-my-clothes-46c81.cloudfunctions.net/stripeWebhook`
+  (デプロイログには `*.run.app` の別名も出るが、Stripeにはcloudfunctions.net版を登録してある)
+- 購読イベント4種、カスタマーポータル(解約許可)ともに設定済み
+- Vercel環境変数 `NEXT_PUBLIC_BILLING_ENABLED=true` 設定済み
+
+**シークレットを更新したら必ず再デプロイすること。**関数はデプロイ時点のバージョンを掴むので、
+Secret Managerを書き換えただけでは反映されない。
+
 ### 未完了
-- Stripeアカウント・商品・price ID の作成
-- `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` の登録、`functions/.env` の `STRIPE_PRICE_ID`
-- **Stripe関数のデプロイ**(シークレット未登録のため未実施)
-- Vercel環境変数 `NEXT_PUBLIC_BILLING_ENABLED=true`
-- 特商法表記の記入
+- 実機でのテスト決済(`4242 4242 4242 4242`)による検証。確認項目は3つ:
+  決済後に `plan` が premium になるか / おまかせ提案が解禁されるか / 解約で `free` に戻るか
+- 本番モードへの移行(商品・価格・Webhookをlive側で作り直し、`sk_live_` と新しい `whsec_` を登録)
+- `firebase-functions` がメジャーバージョン遅れ。デプロイ時に警告が出る。破壊的変更を含むため保留中
 
 ---
 
