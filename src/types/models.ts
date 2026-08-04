@@ -528,6 +528,20 @@ export interface StylePost {
    * 「今日の気温に近い日のコーデ」フィルタに使う。編集不可(ルールの許可キー外)。
    */
   tempC?: number | null;
+  /**
+   * 一覧・グリッド用の小さい画像(長辺480px)。投稿時に本体と一緒に作って上げる。
+   *
+   * 3列グリッドの1マスは実寸で130px程度しかないのに、そこへ1280pxの本体画像を
+   * 並べると1画面で数MBを読むことになり、検索やプロフィールが目に見えて重かった。
+   * **これを足す前の投稿には存在しない**ので、参照側は必ず
+   * `post.thumbUrl ?? post.imageUrl` の形で読むこと(`thumbSrc()` を用意してある)。
+   */
+  thumbUrl?: string | null;
+}
+
+/** 一覧・グリッドで使う画像。小さい版が無い古い投稿は本体に落ちる。 */
+export function thumbSrc(post: { thumbUrl?: string | null; imageUrl: string }): string {
+  return post.thumbUrl || post.imageUrl;
 }
 
 export interface PostLike {

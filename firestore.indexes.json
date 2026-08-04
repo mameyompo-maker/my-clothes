@@ -1,0 +1,45 @@
+{
+  "//": "2026-08-05 追加。ここが空だったせいで、ホームの公開タイムラインと『あなたの2択』のサーバー側クエリが常に失敗していた(索引不足=FAILED_PRECONDITION)。onSnapshot にエラーコールバックが無かったため、画面には『いつまでも読み込み中』としてしか現れなかった。新しいクエリを足したら、必ずここも更新してデプロイすること。",
+  "indexes": [
+    {
+      "//": "watchPublicStylePosts: ホーム・さがすの公開タイムライン",
+      "collectionGroup": "stylePosts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "visibility", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "watchMyPosts: 2択一覧の『あなたの2択』",
+      "collectionGroup": "outfitPosts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ownerUid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "//": "listMyLikedPostIds: 自分のいいねを collectionGroup で横断的に引く",
+      "collectionGroup": "likes",
+      "fieldPath": "uid",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "//": "listMySavedPostIds / listSavedPosts: 保存した投稿の一覧",
+      "collectionGroup": "saves",
+      "fieldPath": "uid",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}

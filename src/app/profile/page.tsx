@@ -19,6 +19,7 @@ import {
   MAX_FAVORITE_POSTS,
   PERSONAL_COLORS,
   STYLE_GENRES,
+  thumbSrc,
   type FacePattern,
   type StylePost,
   type UserProfile,
@@ -286,7 +287,7 @@ export default function ProfilePage() {
                 {favoritePosts.map((p) => (
                   <Link key={p.id} href={`/post/${p.id}`} className="tappable">
                     <div className="relative overflow-hidden rounded-2xl bg-surface-muted" style={{ aspectRatio: "3 / 4" }}>
-                      <Image src={p.imageUrl} alt={p.caption || "お気に入り"} fill className="object-cover" unoptimized />
+                      <Image src={thumbSrc(p)} alt={p.caption || "お気に入り"} fill className="object-cover" unoptimized />
                     </div>
                   </Link>
                 ))}
@@ -342,7 +343,7 @@ export default function ProfilePage() {
             <div className="grid grid-cols-3 gap-[2px]">
               {posts.map((p) => (
                 <Link key={p.id} href={`/post/${p.id}`} className="relative aspect-square bg-surface-muted">
-                  <Image src={p.imageUrl} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
+                  <Image src={thumbSrc(p)} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
                   {p.visibility === "friends" && (
                     <span className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[9px] text-white">フォロワー</span>
                   )}
@@ -436,7 +437,7 @@ export default function ProfilePage() {
                   }`}
                   style={{ aspectRatio: "3 / 4" }}
                 >
-                  <Image src={p.imageUrl} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
+                  <Image src={thumbSrc(p)} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
                   {selected && (
                     <span className="animate-pop-in absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-accent-foreground">
                       <IconCheck className="h-3.5 w-3.5" />

@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import {
+  getClosetItemsByIds,
   getFriendProfiles,
   getUserProfile,
   hasVotedOn,
   listClosetItems,
   listFacePatterns,
-  listFollowingUids,
   watchFeedPosts,
   watchFollowedOutfitPosts,
   watchMyPosts,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/firestore";
 import type { ClosetItem, FacePattern, OutfitPost, UserProfile } from "@/types/models";
 import { OutfitCard } from "@/components/OutfitCard";
+import { OfficialVotesPreview } from "@/components/OfficialPreview";
 import { Avatar, EmptyState, PrimaryButton, Skeleton, TopBar } from "@/components/ui";
 import { IconClock, IconVote } from "@/components/icons";
 
@@ -31,12 +32,15 @@ function timeLeftLabel(expiresAt: number): string {
 }
 
 export default function VoteListPage() {
-  const { user, profile, hiddenUids } = useAuth();
+  const { user, profile, hiddenUids, followingUids } = useAuth();
   const [myPosts, setMyPosts] = useState<OutfitPost[]>([]);
   const [friendPosts, setFriendPosts] = useState<OutfitPost[]>([]);
   const [ownerByUid, setOwnerByUid] = useState<Record<string, UserProfile>>({});
   const [myItems, setMyItems] = useState<ClosetItem[]>([]);
   const [myFaces, setMyFaces] = useState<FacePattern[]>([]);
+  // 他人の2択に写っている服。**一覧でもカードの中身を出すために要る**
+  // (以前は空配列を渡していたので、他人の2択がすべて「アイテム未選択」になっていた)。
+  const [otherItems, setOtherItems] = useState<ClosetItem[]>([]);
   const [loading, setLoading] = useState(true);
   // postId → 自分が投票済みか。未投票の2択を先頭に出すために引く。
   const [votedMap, setVotedMap] = useState<Record<string, boolean>>({});
@@ -69,26 +73,46 @@ export default function VoteListPage() {
       fromPublic = list;
       merge();
     });
-    // フォロー一覧は1回引けば十分(フォロー直後の反映は次に開いたときでよい)。
-    let unsubFollowed: (() => void) | null = null;
-    let cancelled = false;
-    listFollowingUids(user.uid).then((uids) => {
-      if (cancelled || uids.length === 0) return;
-      unsubFollowed = watchFollowedOutfitPosts(user.uid, uids, (list) => {
-        fromFollowed = list;
-        merge();
-      });
-    });
+    // フォロー中の人の2択。フォロー一覧は AuthProvider が起動時に1回引いたものを使う。
+    const unsubFollowed =
+      followingUids.length > 0
+        ? watchFollowedOutfitPosts(user.uid, followingUids, (list) => {
+            fromFollowed = list;
+            merge();
+          })
+        : null;
     listClosetItems(user.uid).then(setMyItems);
     listFacePatterns(user.uid).then(setMyFaces);
     return () => {
-      cancelled = true;
       unsubMine();
       unsubFeed();
       unsubPublic();
       unsubFollowed?.();
     };
-  }, [user, hiddenUids]);
+  }, [user, hiddenUids, followingUids]);
+
+  // 他人の2択に写っている服を、必要なぶんだけまとめて取る(30件ずつの in 検索)。
+  // 相手のクローゼットを丸ごと読むより軽く、カードがきちんと絵になる。
+  const neededItemIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of friendPosts) {
+      for (const c of p.candidates) for (const id of c.itemIds) ids.add(id);
+    }
+    return Array.from(ids).sort().join(",");
+  }, [friendPosts]);
+
+  useEffect(() => {
+    if (!neededItemIds) return;
+    let cancelled = false;
+    getClosetItemsByIds(neededItemIds.split(","))
+      .then((items) => {
+        if (!cancelled) setOtherItems(items);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [neededItemIds]);
 
   useEffect(() => {
     if (!profile) return;
@@ -162,6 +186,10 @@ export default function VoteListPage() {
           />
         ) : (
           <div className="space-y-8">
+            {/* フォローが5人以下のうちは、公式アカウントの2択が先頭を流れる。
+                フォローしていなくても投票できるので、まず参加してもらう。 */}
+            <OfficialVotesPreview outfits={orderedFriendPosts} ownerByUid={ownerByUid} />
+
             {friendPosts.length > 0 && (
               <section>
                 <h2 className="mb-3 text-sm font-bold">みんなの2択</h2>
@@ -171,7 +199,7 @@ export default function VoteListPage() {
                       key={post.id}
                       post={post}
                       owner={ownerByUid[post.ownerUid]}
-                      items={[]}
+                      items={otherItems}
                       faces={[]}
                       cta={votedMap[post.id] ? "結果を見る" : "選んであげる"}
                       voted={votedMap[post.id] ?? false}

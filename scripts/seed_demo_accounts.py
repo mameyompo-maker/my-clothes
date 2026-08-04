@@ -891,7 +891,12 @@ def main():
                 "createdAt": NOW - (8 - idx) * HOUR,
             })
 
-        # 5) 2択(公開・期限3日。composeStatus=failed でボード表示に落とす)
+        # 5) 2択(公開。composeStatus=failed でボード表示に落とす)
+        #    期限は 30 日。以前は本物の2択と同じ3日にしていたが、公式サンプルは
+        #    「まだ誰もフォローしていない人に見せるプレビュー」なので、数日で
+        #    空になると初見の画面が寂しくなる(2026-08-05 にKazさん指示のプレビュー
+        #    導線を入れたのに合わせて延ばした)。賑わいを保つための再投入は
+        #    引き続き有効(createdAt が実行時刻に更新される)。
         o = p["outfit"]
         outfit_id = f"demo_outfit_{uid.removeprefix('demo_')}_1"
         created = NOW - (2 + idx) * HOUR
@@ -908,7 +913,7 @@ def main():
             ],
             "sharedWithUids": [u for u in all_uids if u != uid],
             "createdAt": created,
-            "expiresAt": created + 3 * DAY,
+            "expiresAt": created + 30 * DAY,
             "decidedCandidateIndex": None,
             "buildMode": "topDown",
             "deletedAt": None,

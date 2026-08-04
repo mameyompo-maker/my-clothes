@@ -5,6 +5,7 @@ import {
   collectionGroup,
   deleteDoc,
   doc,
+  documentId,
   getDoc,
   getDocFromCache,
   getDocs,
@@ -66,6 +67,25 @@ function requireDb() {
 function requireStorage() {
   if (!storage) throw new Error("Firebaseが未設定です。.env.local を確認してください。");
   return storage;
+}
+
+/**
+ * onSnapshot のエラーコールバックの既定。**必ず渡すこと。**
+ *
+ * ⚠ 2026-08-05 に判明した事故の教訓。`firestore.indexes.json` が無く、ホームの
+ * 公開タイムライン(visibility + orderBy createdAt)と2択一覧(ownerUid + orderBy
+ * createdAt)がサーバー側で FAILED_PRECONDITION を返し続けていた。ところが
+ * エラーコールバックを省いていたため、**画面上は「いつまでも読み込み中」に
+ * しか見えず**、原因が「遅い」としか観測できなかった。
+ *
+ * ここでは必ずコンソールに理由を出し、空配列を流して画面のローディングを解く。
+ * 「出ない」は直せるが、「永久に待つ」は直せない。
+ */
+function snapshotFailed<T>(label: string, onChange: (v: T[]) => void) {
+  return (e: unknown) => {
+    console.error(`[firestore] ${label} の購読に失敗しました`, e);
+    onChange([]);
+  };
 }
 
 function generateInviteCode(): string {
@@ -308,7 +328,11 @@ export function watchNotifications(
     orderBy("createdAt", "desc"),
     limit(80)
   );
-  return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as AppNotification)));
+  return onSnapshot(
+    q,
+    (snap) => onChange(snap.docs.map((d) => d.data() as AppNotification)),
+    snapshotFailed("お知らせ", onChange)
+  );
 }
 
 /** 既読にする。件数を持たず「どこまで読んだか」の時刻だけで数えるので、書き込みは1回で済む。 */
@@ -370,14 +394,34 @@ export async function reportContent(input: Omit<Report, "id" | "createdAt">): Pr
 
 
 /**
+ * 公式アカウント。フォローがまだ少ない人に見せる「プレビュー」の材料になる。
+ *
+ * `official` は firestore.rules で本人にも書けないので、ここに並ぶのは運営が
+ * Admin SDK で立てたアカウントだけ。件数が少ないうえ内容が変わらないので、
+ * 呼び出し側は `cachedOnce()` 越しに使うこと。
+ */
+export async function listOfficialUsers(max = 12): Promise<UserProfile[]> {
+  const database = requireDb();
+  const snap = await getDocs(
+    query(collection(database, "users"), where("official", "==", true), limit(max))
+  );
+  return snap.docs.map((d) => d.data() as UserProfile).filter((u) => u.uid);
+}
+
+/**
  * はじめて入った人に出す「おすすめの人」。
  *
  * 誰ともつながっていない状態のフィードは空同然で、初日に離脱する最大の原因になる。
  * ここで効かせているのは **このアプリにしかない推薦軸**——骨格タイプ・パーソナルカラー・
  * 身長・好きなジャンルの近さ。「同じ骨格ウェーブの人の着こなし」は他のSNSでは作れない。
  *
- * 実装は素朴に「新しめのユーザーを最大200件読んで、その中で並べ替える」だけ。
- * 利用者が増えたら、事前計算した推薦テーブルに置き換える前提の暫定版。
+ * ⚠ 以前は `users` を無条件に200件読んでいた。ホームを開くたびに200ドキュメント読む
+ * うえ、フィードより先に描かれるので「開いてから動き出すまで」の待ち時間を丸ごと
+ * 押し上げていた(Kazさん指摘)。いまは
+ *   ① 公式アカウント(数件)
+ *   ② 投稿数の多い人(＝中身のあるプロフィール)
+ * の2本だけを並列に引いて、その中で並べ替える。読む件数は 200 → 40 程度に減る。
+ * 利用者が増えたら、事前計算した推薦テーブルに置き換える前提なのは変わらない。
  */
 export async function suggestUsersToFollow(
   me: UserProfile,
@@ -385,11 +429,19 @@ export async function suggestUsersToFollow(
   max = 8
 ): Promise<{ profile: UserProfile; reason: string }[]> {
   const database = requireDb();
-  const snap = await getDocs(query(collection(database, "users"), limit(200)));
+  const [officials, active] = await Promise.all([
+    listOfficialUsers(12).catch(() => [] as UserProfile[]),
+    getDocs(query(collection(database, "users"), orderBy("postCount", "desc"), limit(30)))
+      .then((s) => s.docs.map((d) => d.data() as UserProfile))
+      .catch(() => [] as UserProfile[]),
+  ]);
   const exclude = new Set([me.uid, ...me.friendUids, ...excludeUids]);
+  const byUid = new Map<string, UserProfile>();
+  for (const u of [...officials, ...active]) {
+    if (u.uid && !byUid.has(u.uid)) byUid.set(u.uid, u);
+  }
 
-  const scored = snap.docs
-    .map((d) => d.data() as UserProfile)
+  const scored = Array.from(byUid.values())
     .filter((u) => u.uid && !exclude.has(u.uid))
     .map((u) => {
       let score = 0;
@@ -618,12 +670,27 @@ export async function deleteSavedOutfit(outfitId: string): Promise<void> {
 }
 
 /** 投稿のアイテムタグなどから、IDでまとめて服を引く。存在しないIDは黙って落とす。 */
+/**
+ * 指定したIDの服だけをまとめて引く。
+ *
+ * 1件ずつ getDoc を並べると件数ぶん往復が増えるので、`documentId()` の `in` 検索で
+ * 30件ずつまとめて取る。2択一覧のように「他人の服を数十件だけ見たい」場面で効く
+ * (相手のクローゼット全部を読むより圧倒的に軽い)。
+ */
 export async function getClosetItemsByIds(itemIds: string[]): Promise<ClosetItem[]> {
   const database = requireDb();
   const ids = Array.from(new Set(itemIds)).filter(Boolean);
   if (ids.length === 0) return [];
-  const snaps = await Promise.all(ids.map((id) => getDoc(doc(database, "closetItems", id))));
-  return snaps.filter((s) => s.exists()).map((s) => s.data() as ClosetItem);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      getDocs(query(collection(database, "closetItems"), where(documentId(), "in", chunk)))
+        .then((snap) => snap.docs.map((d) => d.data() as ClosetItem))
+        .catch(() => [] as ClosetItem[])
+    )
+  );
+  return results.flat();
 }
 
 export async function updateClosetItem(
@@ -810,14 +877,19 @@ export async function decideOutfitCandidate(postId: string, candidateIndex: numb
 export function watchFeedPosts(myUid: string, onChange: (posts: OutfitPost[]) => void): Unsubscribe {
   const database = requireDb();
   const q = query(collection(database, "outfitPosts"), where("sharedWithUids", "array-contains", myUid));
-  return onSnapshot(q, (snap) => {
-    const now = Date.now();
-    const posts = snap.docs
-      .map((d) => d.data() as OutfitPost)
-      .filter((p) => p.expiresAt > now && !p.deletedAt)
-      .sort((a, b) => b.createdAt - a.createdAt);
-    onChange(posts);
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const now = Date.now();
+      onChange(
+        snap.docs
+          .map((d) => d.data() as OutfitPost)
+          .filter((p) => p.expiresAt > now && !p.deletedAt)
+          .sort((a, b) => b.createdAt - a.createdAt)
+      );
+    },
+    snapshotFailed("共有された2択", onChange)
+  );
 }
 
 /**
@@ -835,15 +907,19 @@ export function watchPublicOutfitPosts(
     where("visibility", "==", "public"),
     limit(60)
   );
-  return onSnapshot(q, (snap) => {
-    const now = Date.now();
-    onChange(
-      snap.docs
-        .map((d) => d.data() as OutfitPost)
-        .filter((p) => p.expiresAt > now && !p.deletedAt && p.ownerUid !== myUid)
-        .sort((a, b) => b.createdAt - a.createdAt)
-    );
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const now = Date.now();
+      onChange(
+        snap.docs
+          .map((d) => d.data() as OutfitPost)
+          .filter((p) => p.expiresAt > now && !p.deletedAt && p.ownerUid !== myUid)
+          .sort((a, b) => b.createdAt - a.createdAt)
+      );
+    },
+    snapshotFailed("公開の2択", onChange)
+  );
 }
 
 /**
@@ -894,9 +970,11 @@ export function watchFollowedOutfitPosts(
 export function watchMyPosts(myUid: string, onChange: (posts: OutfitPost[]) => void): Unsubscribe {
   const database = requireDb();
   const q = query(collection(database, "outfitPosts"), where("ownerUid", "==", myUid), orderBy("createdAt", "desc"));
-  return onSnapshot(q, (snap) => {
-    onChange(snap.docs.map((d) => d.data() as OutfitPost).filter((p) => !p.deletedAt));
-  });
+  return onSnapshot(
+    q,
+    (snap) => onChange(snap.docs.map((d) => d.data() as OutfitPost).filter((p) => !p.deletedAt)),
+    snapshotFailed("あなたの2択", onChange)
+  );
 }
 
 /**
@@ -1051,14 +1129,28 @@ export interface StylePostInput {
   tempC?: number | null;
 }
 
+/**
+ * 全身写真の投稿を1件作る。
+ *
+ * 速さのために2つ効かせている。
+ *  - **本体とサムネイルを並列にアップロードする。**直列にすると待ち時間が単純に倍になる。
+ *  - **postCount の加算を待たない。**表示専用の非正規化カウンタでしかないので、
+ *    ここで往復1回ぶん待たせる価値がない(失敗しても投稿は成立する)。
+ */
 export async function createStylePost(
   owner: UserProfile,
   input: StylePostInput,
-  file: Blob
+  file: Blob,
+  thumb?: Blob | null
 ): Promise<StylePost> {
   const database = requireDb();
   const id = crypto.randomUUID();
-  const imageUrl = await uploadImage(`styles/${owner.uid}/${id}.jpg`, file);
+  const [imageUrl, thumbUrl] = await Promise.all([
+    uploadImage(`styles/${owner.uid}/${id}.jpg`, file),
+    thumb
+      ? uploadImage(`styles/${owner.uid}/${id}_thumb.jpg`, thumb).catch(() => null)
+      : Promise.resolve(null),
+  ]);
   const post: StylePost = {
     id,
     ownerUid: owner.uid,
@@ -1078,9 +1170,10 @@ export async function createStylePost(
     placeName: input.placeName ?? null,
     hashtags: input.hashtags ?? [],
     tempC: input.tempC ?? null,
+    thumbUrl,
   };
   await setDoc(doc(database, "stylePosts", id), post);
-  await updateDoc(doc(database, "users", owner.uid), { postCount: increment(1) });
+  void updateDoc(doc(database, "users", owner.uid), { postCount: increment(1) }).catch(() => {});
   return post;
 }
 
@@ -1116,15 +1209,29 @@ export async function deleteStylePost(post: StylePost): Promise<void> {
 }
 
 /** 公開タイムライン。友達ゼロでも中身が見えるのがこの画面の狙い。 */
-export function watchPublicStylePosts(onChange: (posts: StylePost[]) => void): Unsubscribe {
+export function watchPublicStylePosts(
+  onChange: (posts: StylePost[]) => void,
+  max = 40,
+  onError?: (e: unknown) => void
+): Unsubscribe {
   const database = requireDb();
   const q = query(
     collection(database, "stylePosts"),
     where("visibility", "==", "public"),
     orderBy("createdAt", "desc"),
-    limit(100)
+    limit(max)
   );
-  return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as StylePost)));
+  // ⚠ エラーコールバックを必ず渡すこと。省くと索引不足や権限エラーのときに
+  // onChange が一度も呼ばれず、画面が**スケルトンのまま永久に止まる**。
+  return onSnapshot(
+    q,
+    (snap) => onChange(snap.docs.map((d) => d.data() as StylePost)),
+    (e) => {
+      console.error("watchPublicStylePosts", e);
+      onError?.(e);
+      onChange([]);
+    }
+  );
 }
 
 /**
@@ -1285,6 +1392,37 @@ export async function hasLiked(postId: string, uid: string): Promise<boolean> {
   return (await getDoc(doc(database, "stylePosts", postId, "likes", uid))).exists();
 }
 
+/**
+ * 自分が「いいね」した投稿IDを一度に取る。
+ *
+ * ⚠ ここが効く理由。以前はカード1枚ごとに `hasLiked` + `hasSaved` を呼んでいたので、
+ * ホームに20枚並ぶと**それだけで40回の往復**が走っていた。「ホーム画面の更新に
+ * 大変時間がかかる」(Kazさん)の主因がこれ。collectionGroup で自分の行だけを
+ * 横断的に引けば、何枚並ぼうと**1回**で済む。
+ *
+ * `likes` / `saves` はどちらもドキュメントIDを uid に固定してあるうえ、中身にも
+ * `uid` を持たせてあるので、この形のクエリが書ける(ルールも許可済み)。
+ * collectionGroup スコープの単一フィールド索引が要るので `firestore.indexes.json`
+ * に入れてある。索引が無い環境では黙って空を返し、カード側が従来どおり
+ * 1件ずつ確認する経路に落ちる。
+ */
+export async function listMyLikedPostIds(uid: string, max = 300): Promise<string[]> {
+  const database = requireDb();
+  const snap = await getDocs(
+    query(collectionGroup(database, "likes"), where("uid", "==", uid), limit(max))
+  );
+  return snap.docs.map((d) => (d.data() as { postId: string }).postId).filter(Boolean);
+}
+
+/** 自分が「保存」した投稿ID。`listMyLikedPostIds` と同じ狙い。 */
+export async function listMySavedPostIds(uid: string, max = 300): Promise<string[]> {
+  const database = requireDb();
+  const snap = await getDocs(
+    query(collectionGroup(database, "saves"), where("uid", "==", uid), limit(max))
+  );
+  return snap.docs.map((d) => (d.data() as { postId: string }).postId).filter(Boolean);
+}
+
 export async function addComment(
   postId: string,
   author: UserProfile,
@@ -1344,7 +1482,7 @@ export function watchChatThreads(myUid: string, onChange: (threads: ChatThread[]
       .map((d) => d.data() as ChatThread)
       .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
     onChange(threads);
-  });
+  }, snapshotFailed("メッセージ一覧", onChange));
 }
 
 export function watchChatMessages(id: string, onChange: (messages: ChatMessage[]) => void): Unsubscribe {

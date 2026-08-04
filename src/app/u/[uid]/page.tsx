@@ -23,6 +23,7 @@ import {
   REPORT_REASONS,
   STYLE_GENRES,
   threadId,
+  thumbSrc,
   type ReportReason,
   type StylePost,
   type UserProfile,
@@ -204,7 +205,7 @@ export default function UserProfilePage() {
                           className="relative overflow-hidden rounded-2xl bg-surface-muted"
                           style={{ aspectRatio: "3 / 4" }}
                         >
-                          <Image src={p.imageUrl} alt={p.caption || "お気に入り"} fill className="object-cover" unoptimized />
+                          <Image src={thumbSrc(p)} alt={p.caption || "お気に入り"} fill className="object-cover" unoptimized />
                         </div>
                       </Link>
                     ))}
@@ -279,7 +280,7 @@ export default function UserProfilePage() {
                 <div className="grid grid-cols-3 gap-[2px]">
                   {posts.map((p) => (
                     <Link key={p.id} href={`/post/${p.id}`} className="relative aspect-square bg-surface-muted">
-                      <Image src={p.imageUrl} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
+                      <Image src={thumbSrc(p)} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
                       {p.visibility === "friends" && (
                         <span className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[9px] text-white">
                           フォロワー

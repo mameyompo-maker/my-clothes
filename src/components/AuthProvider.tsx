@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import { auth, googleAuthProvider, isFirebaseConfigured } from "@/lib/firebase";
 import {
@@ -9,6 +9,9 @@ import {
   getUserProfileFromCache,
   listBlockedByUids,
   listBlockedUids,
+  listFollowingUids,
+  listMyLikedPostIds,
+  listMySavedPostIds,
 } from "@/lib/firestore";
 import type { UserProfile } from "@/types/models";
 
@@ -27,46 +30,103 @@ interface AuthContextValue {
    */
   hiddenUids: Set<string>;
   refreshBlocks: () => Promise<void>;
+  /** 自分がフォローしている相手。フィード・2択一覧・おすすめが共通で使う。 */
+  followingUids: string[];
+  refreshFollowing: () => Promise<void>;
+  /**
+   * 自分が「いいね」「保存」した投稿ID。
+   *
+   * **カードごとに問い合わせないための一括取得**。以前は1枚につき2往復していて、
+   * 20枚並ぶだけで40回の往復になっていた(ホームが重かった主因)。
+   */
+  likedPostIds: Set<string>;
+  savedPostIds: Set<string>;
+  /**
+   * 一括取得が使えたか。索引が未作成などで失敗した場合は false になり、
+   * カード側が従来どおり1件ずつ確認する経路に落ちる(表示は壊さない)。
+   */
+  reactionsReady: boolean;
+  setLikedLocal: (postId: string, liked: boolean) => void;
+  setSavedLocal: (postId: string, saved: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+/** 中身が同じなら同じ Set を使い回す。無駄な再購読・再取得の連鎖を止めるため。 */
+function sameMembers(a: Set<string>, b: string[]): boolean {
+  if (a.size !== b.length) return false;
+  return b.every((x) => a.has(x));
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(isFirebaseConfigured);
   const [hiddenUids, setHiddenUids] = useState<Set<string>>(new Set());
+  const [followingUids, setFollowingUids] = useState<string[]>([]);
+  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
+  const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
+  const [reactionsReady, setReactionsReady] = useState(false);
+  const uidRef = useRef<string | null>(null);
+
+  const applyHidden = useCallback((list: string[]) => {
+    setHiddenUids((prev) => (sameMembers(prev, list) ? prev : new Set(list)));
+  }, []);
 
   useEffect(() => {
     if (!isFirebaseConfigured || !auth) return;
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
+      uidRef.current = firebaseUser?.uid ?? null;
       if (firebaseUser) {
+        const uid = firebaseUser.uid;
         // 起動を速くするための2段構え:
-        //  1. ブロック一覧は画面表示を待たせない(裏で読み、届き次第フィードから除外)。
+        //  1. 付帯データ(ブロック・フォロー・いいね/保存)は画面表示を待たせない。
+        //     すべて裏で並列に読み、届いた順に反映する。
         //  2. プロフィールはまずローカルキャッシュで即描画し、サーバー確定値で置き換える。
         // 以前は「プロフィール → ブロック2本」を直列で待ってから描画しており、
         // ネットワーク往復3回ぶんスピナーを見せていた。
         void Promise.all([
-          listBlockedUids(firebaseUser.uid).catch(() => [] as string[]),
-          listBlockedByUids(firebaseUser.uid).catch(() => [] as string[]),
-        ]).then(([mine, theirs]) => setHiddenUids(new Set([...mine, ...theirs])));
+          listBlockedUids(uid).catch(() => [] as string[]),
+          listBlockedByUids(uid).catch(() => [] as string[]),
+        ]).then(([mine, theirs]) => applyHidden([...mine, ...theirs]));
 
-        const cached = await getUserProfileFromCache(firebaseUser.uid);
+        void listFollowingUids(uid)
+          .then(setFollowingUids)
+          .catch(() => setFollowingUids([]));
+
+        // いいね/保存は collectionGroup で1回ずつ。索引が無い環境では
+        // reactionsReady を false のままにして、カード側の個別確認に任せる。
+        void Promise.all([listMyLikedPostIds(uid), listMySavedPostIds(uid)])
+          .then(([liked, saved]) => {
+            setLikedPostIds(new Set(liked));
+            setSavedPostIds(new Set(saved));
+            setReactionsReady(true);
+          })
+          .catch((e) => {
+            console.warn("いいね/保存の一括取得に失敗。個別確認に落ちます", e);
+            setReactionsReady(false);
+          });
+
+        const cached = await getUserProfileFromCache(uid);
         if (cached) {
           setProfile(cached);
           setLoading(false);
         }
-        const p = await ensureUserProfile(firebaseUser.uid, firebaseUser.displayName ?? "名無しさん", firebaseUser.photoURL);
+        const p = await ensureUserProfile(uid, firebaseUser.displayName ?? "名無しさん", firebaseUser.photoURL);
         setProfile(p);
       } else {
         setProfile(null);
         setHiddenUids(new Set());
+        setFollowingUids([]);
+        setLikedPostIds(new Set());
+        setSavedPostIds(new Set());
+        setReactionsReady(false);
       }
       setLoading(false);
     });
     return unsubscribe;
-  }, []);
+  }, [applyHidden]);
 
   async function signInWithGoogle() {
     if (!auth) throw new Error("Firebaseが未設定です。.env.local を確認してください。");
@@ -96,14 +156,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       listBlockedUids(user.uid).catch(() => [] as string[]),
       listBlockedByUids(user.uid).catch(() => [] as string[]),
     ]);
-    setHiddenUids(new Set([...mine, ...theirs]));
+    applyHidden([...mine, ...theirs]);
   }
 
-  return (
-    <AuthContext.Provider value={{ user, profile, loading, signInWithGoogle, signOutUser, refreshProfile, hiddenUids, refreshBlocks }}>
-      {children}
-    </AuthContext.Provider>
+  const refreshFollowing = useCallback(async () => {
+    const uid = uidRef.current;
+    if (!uid) return;
+    setFollowingUids(await listFollowingUids(uid).catch(() => []));
+  }, []);
+
+  const setLikedLocal = useCallback((postId: string, liked: boolean) => {
+    setLikedPostIds((prev) => {
+      const next = new Set(prev);
+      if (liked) next.add(postId);
+      else next.delete(postId);
+      return next;
+    });
+  }, []);
+
+  const setSavedLocal = useCallback((postId: string, saved: boolean) => {
+    setSavedPostIds((prev) => {
+      const next = new Set(prev);
+      if (saved) next.add(postId);
+      else next.delete(postId);
+      return next;
+    });
+  }, []);
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      profile,
+      loading,
+      signInWithGoogle,
+      signOutUser,
+      refreshProfile,
+      hiddenUids,
+      refreshBlocks,
+      followingUids,
+      refreshFollowing,
+      likedPostIds,
+      savedPostIds,
+      reactionsReady,
+      setLikedLocal,
+      setSavedLocal,
+    }),
+    // signIn/signOut/refresh* は毎回作り直されるが、依存に入れると値が毎回変わって
+    // 下流の useEffect を無駄に走らせる。実体は state を読むだけなので除外している。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user, profile, loading, hiddenUids, followingUids, likedPostIds, savedPostIds, reactionsReady, refreshFollowing, setLikedLocal, setSavedLocal]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

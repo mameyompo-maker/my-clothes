@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { searchUsersByHandle, watchPublicStylePosts } from "@/lib/firestore";
-import { STYLE_GENRES, type StyleGenre, type StylePost, type UserProfile } from "@/types/models";
+import { searchUsersByHandle } from "@/lib/firestore";
+import { subscribePublicPosts } from "@/lib/liveStore";
+import { STYLE_GENRES, thumbSrc, type StyleGenre, type StylePost, type UserProfile } from "@/types/models";
 import { Avatar, Chip, EmptyState, IconButton, Skeleton, TopBar, inputClass } from "@/components/ui";
 import { IconChevronLeft, IconSearch } from "@/components/icons";
 
@@ -18,8 +19,12 @@ export default function SearchPage() {
   const [searching, setSearching] = useState(false);
   const [posts, setPosts] = useState<StylePost[] | null>(null);
   const [genre, setGenre] = useState<StyleGenre | null>(null);
+  const [shown, setShown] = useState(18);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => watchPublicStylePosts(setPosts), []);
+  // ホームと同じ購読を使い回す。以前はこの画面が自前で公開投稿を読み直していたので、
+  // 「さがす」を開くたびに同じ100件をもう一度取っていた。
+  useEffect(() => subscribePublicPosts(setPosts), []);
 
   useEffect(() => {
     if (!user) return;
@@ -40,7 +45,25 @@ export default function SearchPage() {
     return () => clearTimeout(timer);
   }, [term, user]);
 
-  const filteredPosts = (posts ?? []).filter((p) => !genre || p.genres.includes(genre));
+  const filteredPosts = useMemo(
+    () => (posts ?? []).filter((p) => !genre || p.genres.includes(genre)),
+    [posts, genre]
+  );
+
+  // グリッドも一度に全部描かない。1マスは実寸130px程度なのでサムネイルで足りるが、
+  // それでも数十枚を同時に読み込ませると開いた直後が重くなる。
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || shown >= filteredPosts.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setShown((n) => n + 18);
+      },
+      { rootMargin: "500px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [filteredPosts.length, shown]);
 
   return (
     <>
@@ -125,13 +148,16 @@ export default function SearchPage() {
             />
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-[2px]">
-            {filteredPosts.map((p) => (
-              <Link key={p.id} href={`/post/${p.id}`} className="relative aspect-square bg-surface-muted">
-                <Image src={p.imageUrl} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
-              </Link>
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-3 gap-[2px]">
+              {filteredPosts.slice(0, shown).map((p) => (
+                <Link key={p.id} href={`/post/${p.id}`} className="relative aspect-square bg-surface-muted">
+                  <Image src={thumbSrc(p)} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
+                </Link>
+              ))}
+            </div>
+            <div ref={sentinelRef} className="h-4" />
+          </>
         )}
       </div>
     </>

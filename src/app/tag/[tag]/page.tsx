@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { listStylePostsByHashtag } from "@/lib/firestore";
-import type { StylePost } from "@/types/models";
+import { thumbSrc, type StylePost } from "@/types/models";
 import { EmptyState, IconButton, Skeleton, TopBar } from "@/components/ui";
 import { IconChevronLeft, IconTag } from "@/components/icons";
 
@@ -70,7 +70,7 @@ export default function HashtagPage() {
                   href={`/post/${post.id}`}
                   className="relative aspect-[3/4] overflow-hidden rounded-lg bg-surface-muted"
                 >
-                  <Image src={post.imageUrl} alt={post.caption || "コーデ"} fill className="object-cover" unoptimized />
+                  <Image src={thumbSrc(post)} alt={post.caption || "コーデ"} fill className="object-cover" unoptimized />
                 </Link>
               ))}
             </div>

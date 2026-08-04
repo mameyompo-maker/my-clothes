@@ -4,8 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "./AuthProvider";
 import { followUser, suggestUsersToFollow } from "@/lib/firestore";
+import { cachedOnce, invalidateOnce } from "@/lib/liveStore";
 import type { UserProfile } from "@/types/models";
 import { Avatar, VerifiedBadge } from "./ui";
+
+/** おすすめを作り直すまでの時間。ホームを開くたびに引き直す必要はない。 */
+const SUGGEST_TTL_MS = 10 * 60 * 1000;
 
 /**
  * 「おすすめの人」。
@@ -15,14 +19,24 @@ import { Avatar, VerifiedBadge } from "./ui";
  * 必ず添える**のが肝で、理由の無い推薦はフォローされないし、気味も悪い。
  */
 export function SuggestedUsers({ compact = false }: { compact?: boolean }) {
-  const { user, profile, hiddenUids, refreshProfile } = useAuth();
+  const { user, profile, hiddenUids, followingUids, refreshProfile, refreshFollowing } = useAuth();
   const [items, setItems] = useState<{ profile: UserProfile; reason: string }[] | null>(null);
   const [followed, setFollowed] = useState<Set<string>>(new Set());
 
+  // 依存はすべて**文字列にしてから**渡す。profile や Set をそのまま依存に置くと、
+  // 中身が同じでも参照が変わるたびに再取得が走り、ホームを開くたび何度も
+  // ユーザー一覧を読み直すことになる(ここが重かった原因のひとつ)。
+  // フォロー中の人はここで**取得後に**外す。取得条件に混ぜるとフォローするたび
+  // キャッシュキーが変わって引き直しになるため。
+  const myUid = profile?.uid ?? null;
+  const hiddenKey = Array.from(hiddenUids).sort().join(",");
+
   useEffect(() => {
-    if (!profile) return;
+    if (!profile || !myUid) return;
     let cancelled = false;
-    void suggestUsersToFollow(profile, Array.from(hiddenUids))
+    void cachedOnce(`suggest:${myUid}:${hiddenKey}`, SUGGEST_TTL_MS, () =>
+      suggestUsersToFollow(profile, Array.from(hiddenUids))
+    )
       .then((list) => {
         if (!cancelled) setItems(list);
       })
@@ -32,7 +46,9 @@ export function SuggestedUsers({ compact = false }: { compact?: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [profile, hiddenUids]);
+    // profile 全体ではなく uid と除外キーだけを見る(上のコメントの理由)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myUid, hiddenKey]);
 
   async function handleFollow(targetUid: string) {
     if (!user) return;
@@ -40,7 +56,8 @@ export function SuggestedUsers({ compact = false }: { compact?: boolean }) {
     setFollowed((prev) => new Set(prev).add(targetUid));
     try {
       await followUser(user.uid, targetUid, profile);
-      await refreshProfile();
+      invalidateOnce("suggest");
+      await Promise.all([refreshProfile(), refreshFollowing()]);
     } catch {
       setFollowed((prev) => {
         const next = new Set(prev);
@@ -50,7 +67,8 @@ export function SuggestedUsers({ compact = false }: { compact?: boolean }) {
     }
   }
 
-  if (!items || items.length === 0) return null;
+  const shown = (items ?? []).filter((x) => !followingUids.includes(x.profile.uid));
+  if (shown.length === 0) return null;
 
   return (
     <section className={compact ? "" : "mb-5"}>
@@ -59,7 +77,7 @@ export function SuggestedUsers({ compact = false }: { compact?: boolean }) {
         骨格タイプや好きなジャンルが近い人を選んでいます。似た体型の人の着こなしは、そのまま真似できます。
       </p>
       <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4">
-        {items.map(({ profile: u, reason }) => (
+        {shown.map(({ profile: u, reason }) => (
           <div
             key={u.uid}
             className="w-36 shrink-0 rounded-3xl border border-border bg-surface p-3 text-center"

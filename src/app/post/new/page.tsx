@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { createStylePost, getOutfitPost, listClosetItems } from "@/lib/firestore";
 import { getCurrentPlaceName, hasWeatherOptIn, loadTodayWeather } from "@/lib/weather";
-import { compressImage } from "@/lib/image";
+import { prepareUpload, type PreparedUpload } from "@/lib/image";
 import {
   extractHashtagsFromText,
   mergeHashtags,
@@ -40,6 +40,8 @@ function NewStylePostContent() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLDivElement>(null);
+  /** 写真を選んだ時点で走らせておく圧縮。投稿時はこれを待つだけで済む。 */
+  const preparedRef = useRef<Promise<PreparedUpload> | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -105,6 +107,9 @@ function NewStylePostContent() {
     if (!selected) return;
     setFile(selected);
     setPreviewUrl(URL.createObjectURL(selected));
+    // 圧縮とサムネ生成を**この場で**始める。本人がキャプションやタグを入れている
+    // 数十秒で終わるので、「投稿する」を押した後は送るだけになる。
+    preparedRef.current = prepareUpload(selected);
   }
 
   function handleImageTap(e: React.MouseEvent<HTMLDivElement>) {
@@ -157,7 +162,8 @@ function NewStylePostContent() {
     setSaving(true);
     setError("");
     try {
-      const compressed = await compressImage(file);
+      // 写真を選んだ時点で始めておいた圧縮の結果を受け取る(たいてい既に終わっている)。
+      const prepared = await (preparedRef.current ?? prepareUpload(file));
       const post = await createStylePost(
         profile,
         {
@@ -171,7 +177,8 @@ function NewStylePostContent() {
           hashtags: finalHashtags,
           tempC,
         },
-        compressed
+        prepared.full,
+        prepared.thumb
       );
       router.push(`/post/${post.id}`);
     } catch (err) {
