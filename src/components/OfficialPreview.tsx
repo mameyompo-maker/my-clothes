@@ -6,7 +6,8 @@ import Link from "next/link";
 import { useAuth } from "./AuthProvider";
 import { followUser, listOfficialUsers } from "@/lib/firestore";
 import { cachedOnce, invalidateOnce } from "@/lib/liveStore";
-import { thumbSrc, type OutfitPost, type StylePost, type UserProfile } from "@/types/models";
+import { thumbSrc, type ClosetItem, type OutfitPost, type StylePost, type UserProfile } from "@/types/models";
+import { OutfitCard } from "./OutfitCard";
 import { Avatar, VerifiedBadge } from "./ui";
 import { IconVote } from "./icons";
 
@@ -158,30 +159,33 @@ export function OfficialPostsPreview({ posts }: { posts: StylePost[] }) {
         フォローすると、この人たちのコーデと2択が毎日ホームに届きます。
       </p>
       <AutoScrollRow itemCount={picks.length}>
+        {/* フォローボタンはリンクの中に入れない(a の中に button を置かない)。
+            並べて置き、写真と名前だけをリンクにする。 */}
         {looped.map((p, i) => (
-          <Link
+          <div
             key={`${p.id}-${i}`}
-            href={`/post/${p.id}`}
-            className="tappable w-32 shrink-0 overflow-hidden rounded-2xl border border-border bg-surface"
+            className="w-32 shrink-0 overflow-hidden rounded-2xl border border-border bg-surface"
           >
-            <div className="relative w-full bg-surface-muted" style={{ aspectRatio: "3 / 4" }}>
-              <Image
-                src={thumbSrc(p)}
-                alt={p.caption || "コーデ"}
-                fill
-                className="object-cover"
-                unoptimized
-              />
-            </div>
-            <div className="flex items-center gap-1 px-2 pt-1.5">
-              <Avatar src={p.ownerAvatarUrl} name={p.ownerName} size={18} />
-              <span className="truncate text-[10px] font-bold">{p.ownerName}</span>
-              <VerifiedBadge size={10} />
-            </div>
+            <Link href={`/post/${p.id}`} className="tappable block">
+              <div className="relative w-full bg-surface-muted" style={{ aspectRatio: "3 / 4" }}>
+                <Image
+                  src={thumbSrc(p)}
+                  alt={p.caption || "コーデ"}
+                  fill
+                  className="object-cover"
+                  unoptimized
+                />
+              </div>
+              <div className="flex items-center gap-1 px-2 pt-1.5">
+                <Avatar src={p.ownerAvatarUrl} name={p.ownerName} size={18} />
+                <span className="truncate text-[10px] font-bold">{p.ownerName}</span>
+                <VerifiedBadge size={10} />
+              </div>
+            </Link>
             <div className="px-2 pb-2 pt-1.5">
               <FollowChip targetUid={p.ownerUid} />
             </div>
-          </Link>
+          </div>
         ))}
       </AutoScrollRow>
     </section>
@@ -195,9 +199,12 @@ export function OfficialPostsPreview({ posts }: { posts: StylePost[] }) {
 export function OfficialVotesPreview({
   outfits,
   ownerByUid,
+  items,
 }: {
   outfits: OutfitPost[];
   ownerByUid: Record<string, UserProfile>;
+  /** 候補に写っている服。親が2択一覧のぶんをまとめて取ってあるものを渡す。 */
+  items: ClosetItem[];
 }) {
   const { followingUids } = useAuth();
   const enabled = followingUids.length <= PREVIEW_FOLLOW_THRESHOLD;
@@ -223,10 +230,9 @@ export function OfficialVotesPreview({
         {[...picks, ...picks].map((post, i) => {
           const owner = ownerByUid[post.ownerUid];
           return (
-            <Link
+            <div
               key={`${post.id}-${i}`}
-              href={`/vote/${post.id}`}
-              className="tappable w-52 shrink-0 overflow-hidden rounded-2xl border border-border bg-surface"
+              className="w-52 shrink-0 overflow-hidden rounded-2xl border border-border bg-surface"
             >
               <div className="flex items-center gap-1.5 px-2.5 py-2">
                 <Avatar src={owner?.avatarUrl} name={owner?.name ?? "ユーザー"} size={22} />
@@ -235,30 +241,24 @@ export function OfficialVotesPreview({
                 </span>
                 <FollowChip targetUid={post.ownerUid} />
               </div>
-              <div className="grid grid-cols-2 gap-[2px] px-[2px]">
-                {post.candidates.slice(0, 2).map((c, idx) => (
-                  <div key={idx} className="relative bg-surface-muted" style={{ aspectRatio: "3 / 4" }}>
-                    {c.composedImageUrl || c.photoUrl ? (
-                      <Image
-                        src={(c.composedImageUrl || c.photoUrl) as string}
-                        alt={`候補${idx + 1}`}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <span className="flex h-full items-center justify-center text-[10px] text-muted-foreground">
-                        {idx === 0 ? "A" : "B"}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="flex items-center gap-1 px-2.5 py-2 text-[11px] font-bold text-accent">
-                <IconVote className="h-3.5 w-3.5" />
-                選んであげる →
-              </p>
-            </Link>
+              <Link href={`/vote/${post.id}`} className="tappable block">
+                <div className="grid grid-cols-2 gap-[2px] px-[2px]">
+                  {post.candidates.slice(0, 2).map((c, idx) => (
+                    <OutfitCard
+                      key={idx}
+                      candidate={c}
+                      items={items}
+                      faces={[]}
+                      className="aspect-[3/4] rounded-lg"
+                    />
+                  ))}
+                </div>
+                <p className="flex items-center gap-1 px-2.5 py-2 text-[11px] font-bold text-accent">
+                  <IconVote className="h-3.5 w-3.5" />
+                  選んであげる →
+                </p>
+              </Link>
+            </div>
           );
         })}
       </AutoScrollRow>

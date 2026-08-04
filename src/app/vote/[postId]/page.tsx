@@ -9,8 +9,8 @@ import {
   addSavedOutfit,
   castVote,
   decideOutfitCandidate,
+  getClosetItemsByIds,
   getUserProfile,
-  listClosetItems,
   listFacePatterns,
   listSavedOutfits,
   markItemsWorn,
@@ -84,13 +84,30 @@ export default function VoteDetailPage() {
   }, [postId]);
 
   const postOwnerUid = post?.ownerUid ?? null;
+  // この2択に写っている服だけを取る。以前は相手のクローゼットを丸ごと読んでいたが、
+  // 表示に要るのは候補に入っている数点だけなので、ID指定でまとめて引くほうが速い。
+  const candidateItemIds = post
+    ? Array.from(new Set(post.candidates.flatMap((c) => c.itemIds))).sort().join(",")
+    : "";
   useEffect(() => {
     if (!postOwnerUid) return;
-    getUserProfile(postOwnerUid).then(setOwner);
-    listClosetItems(postOwnerUid).then(setItems);
+    getUserProfile(postOwnerUid).then(setOwner).catch(() => {});
     // 顔写真は本人しか読めない(facePatterns のルール)。他人の投稿では空のままでよい。
-    if (postOwnerUid === user?.uid) listFacePatterns(postOwnerUid).then(setFaces);
+    if (postOwnerUid === user?.uid) listFacePatterns(postOwnerUid).then(setFaces).catch(() => {});
   }, [postOwnerUid, user?.uid]);
+
+  useEffect(() => {
+    if (!candidateItemIds) return;
+    let cancelled = false;
+    getClosetItemsByIds(candidateItemIds.split(","))
+      .then((list) => {
+        if (!cancelled) setItems(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [candidateItemIds]);
 
   useEffect(() => watchVotes(postId, setVotes), [postId]);
   useEffect(() => watchOutfitComments(postId, setComments), [postId]);

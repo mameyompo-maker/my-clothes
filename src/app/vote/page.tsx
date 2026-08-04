@@ -6,7 +6,6 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   getClosetItemsByIds,
   getFriendProfiles,
-  getUserProfile,
   hasVotedOn,
   listClosetItems,
   listFacePatterns,
@@ -126,9 +125,9 @@ export default function VoteListPage() {
     const missing = Array.from(new Set(friendPosts.map((p) => p.ownerUid))).filter((u) => !ownerByUid[u]);
     if (missing.length === 0) return;
     let cancelled = false;
-    Promise.all(missing.map((u) => getUserProfile(u))).then((profiles) => {
+    // 1人ずつ引かず、まとめて取る(getFriendProfiles は30件ずつの in 検索)。
+    getFriendProfiles(missing).then((found) => {
       if (cancelled) return;
-      const found = profiles.filter((p): p is UserProfile => p !== null);
       if (found.length > 0) {
         setOwnerByUid((prev) => ({ ...prev, ...Object.fromEntries(found.map((p) => [p.uid, p])) }));
       }
@@ -188,7 +187,11 @@ export default function VoteListPage() {
           <div className="space-y-8">
             {/* フォローが5人以下のうちは、公式アカウントの2択が先頭を流れる。
                 フォローしていなくても投票できるので、まず参加してもらう。 */}
-            <OfficialVotesPreview outfits={orderedFriendPosts} ownerByUid={ownerByUid} />
+            <OfficialVotesPreview
+              outfits={orderedFriendPosts}
+              ownerByUid={ownerByUid}
+              items={otherItems}
+            />
 
             {friendPosts.length > 0 && (
               <section>

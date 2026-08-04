@@ -185,10 +185,21 @@ export async function getUserProfileFromCache(uid: string): Promise<UserProfile 
   }
 }
 
+/** 複数のプロフィールをまとめて引く。30件ずつの in 検索なので、往復が人数に比例しない。 */
 export async function getFriendProfiles(friendUids: string[]): Promise<UserProfile[]> {
-  if (friendUids.length === 0) return [];
-  const profiles = await Promise.all(friendUids.map((uid) => getUserProfile(uid)));
-  return profiles.filter((p): p is UserProfile => p !== null);
+  const uids = Array.from(new Set(friendUids)).filter(Boolean);
+  if (uids.length === 0) return [];
+  const database = requireDb();
+  const chunks: string[][] = [];
+  for (let i = 0; i < uids.length; i += 30) chunks.push(uids.slice(i, i + 30));
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      getDocs(query(collection(database, "users"), where(documentId(), "in", chunk)))
+        .then((snap) => snap.docs.map((d) => d.data() as UserProfile))
+        .catch(() => [] as UserProfile[])
+    )
+  );
+  return results.flat();
 }
 
 export type ProfileEditableFields = Pick<
@@ -975,6 +986,27 @@ export function watchMyPosts(myUid: string, onChange: (posts: OutfitPost[]) => v
     (snap) => onChange(snap.docs.map((d) => d.data() as OutfitPost).filter((p) => !p.deletedAt)),
     snapshotFailed("あなたの2択", onChange)
   );
+}
+
+/**
+ * 2択作成の画面が起動時に要る「自分の2択まわり」を1回のクエリでまとめて返す。
+ *
+ * 以前は `hasCreatedOutfitToday` / `countOutfitUndosToday` / `listMyOutfitPosts` を
+ * 別々に呼んでいたが、**3本とも中身は同じクエリ**(ownerUid == 自分)だったので、
+ * コーデ作成を開くたびに同じ読み取りを3回していた。
+ */
+export async function loadMyOutfitState(myUid: string): Promise<{
+  madeToday: boolean;
+  undosToday: number;
+  posts: OutfitPost[];
+}> {
+  const raw = await listMyOutfitPostsRaw(myUid);
+  const today = startOfToday();
+  return {
+    madeToday: raw.some((p) => p.createdAt >= today && !p.deletedAt),
+    undosToday: raw.filter((p) => p.deletedAt && p.deletedAt >= today).length,
+    posts: raw.filter((p) => !p.deletedAt).sort((a, b) => b.createdAt - a.createdAt),
+  };
 }
 
 /**

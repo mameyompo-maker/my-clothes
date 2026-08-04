@@ -6,15 +6,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  countOutfitUndosToday,
   createOutfitPost,
   findTodaysOutfitPost,
   getFriendProfiles,
-  hasCreatedOutfitToday,
   listClosetItems,
   listFacePatterns,
-  listMyOutfitPosts,
   listSavedOutfits,
+  loadMyOutfitState,
   undoOutfitPost,
   updateUserProfile,
   uploadImage,
@@ -175,16 +173,16 @@ export default function CreatePostPage() {
 
   useEffect(() => {
     if (!user || !profile) return;
+    // 自分の2択まわりは1本にまとめて引く(以前は同じクエリを3回投げていた)。
     Promise.all([
       listClosetItems(user.uid),
       listFacePatterns(user.uid),
       getFriendProfiles(profile.friendUids),
-      hasCreatedOutfitToday(user.uid),
-      countOutfitUndosToday(user.uid),
+      loadMyOutfitState(user.uid),
       listSavedOutfits(user.uid),
-      listMyOutfitPosts(user.uid),
     ])
-      .then(([items, f, fr, madeToday, undos, saved, pastPosts]) => {
+      .then(([items, f, fr, outfitState, saved]) => {
+        const { madeToday, undosToday: undos, posts: pastPosts } = outfitState;
         setClosetItems(items);
         setFaces(f);
         setFriends(fr);
