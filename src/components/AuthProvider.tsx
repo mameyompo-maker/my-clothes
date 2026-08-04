@@ -42,10 +42,13 @@ interface AuthContextValue {
   likedPostIds: Set<string>;
   savedPostIds: Set<string>;
   /**
-   * 一括取得が使えたか。索引が未作成などで失敗した場合は false になり、
-   * カード側が従来どおり1件ずつ確認する経路に落ちる(表示は壊さない)。
+   * 一括取得の状態。
+   *  - `loading`: まだ読んでいる。**カード側はここで個別問い合わせをしないこと**
+   *    (ここで問い合わせると、一括取得を入れた意味が無くなって元の往復数に戻る)
+   *  - `ready`: 上の2つの集合が正。
+   *  - `unavailable`: 索引が無いなどで引けなかった。カード側が1件ずつ確認する経路に落ちる。
    */
-  reactionsReady: boolean;
+  reactions: "loading" | "ready" | "unavailable";
   setLikedLocal: (postId: string, liked: boolean) => void;
   setSavedLocal: (postId: string, saved: boolean) => void;
 }
@@ -66,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [followingUids, setFollowingUids] = useState<string[]>([]);
   const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
   const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
-  const [reactionsReady, setReactionsReady] = useState(false);
+  const [reactions, setReactions] = useState<"loading" | "ready" | "unavailable">("loading");
   const uidRef = useRef<string | null>(null);
 
   const applyHidden = useCallback((list: string[]) => {
@@ -95,17 +98,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .then(setFollowingUids)
           .catch(() => setFollowingUids([]));
 
-        // いいね/保存は collectionGroup で1回ずつ。索引が無い環境では
-        // reactionsReady を false のままにして、カード側の個別確認に任せる。
+        // いいね/保存は collectionGroup で1回ずつ。索引が無い環境だけ
+        // "unavailable" にして、カード側の個別確認に任せる。
         void Promise.all([listMyLikedPostIds(uid), listMySavedPostIds(uid)])
           .then(([liked, saved]) => {
             setLikedPostIds(new Set(liked));
             setSavedPostIds(new Set(saved));
-            setReactionsReady(true);
+            setReactions("ready");
           })
           .catch((e) => {
             console.warn("いいね/保存の一括取得に失敗。個別確認に落ちます", e);
-            setReactionsReady(false);
+            setReactions("unavailable");
           });
 
         const cached = await getUserProfileFromCache(uid);
@@ -121,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setFollowingUids([]);
         setLikedPostIds(new Set());
         setSavedPostIds(new Set());
-        setReactionsReady(false);
+        setReactions("loading");
       }
       setLoading(false);
     });
@@ -197,14 +200,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshFollowing,
       likedPostIds,
       savedPostIds,
-      reactionsReady,
+      reactions,
       setLikedLocal,
       setSavedLocal,
     }),
     // signIn/signOut/refresh* は毎回作り直されるが、依存に入れると値が毎回変わって
     // 下流の useEffect を無駄に走らせる。実体は state を読むだけなので除外している。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, profile, loading, hiddenUids, followingUids, likedPostIds, savedPostIds, reactionsReady, refreshFollowing, setLikedLocal, setSavedLocal]
+    [user, profile, loading, hiddenUids, followingUids, likedPostIds, savedPostIds, reactions, refreshFollowing, setLikedLocal, setSavedLocal]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

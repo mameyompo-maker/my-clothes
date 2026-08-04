@@ -15,32 +15,34 @@ import { IconComment, IconHeart, IconHeartFilled, IconTag } from "./icons";
  * 写真をタップするとタグの表示/非表示が切り替わる。
  */
 export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string | null }) {
-  const { profile, likedPostIds, savedPostIds, reactionsReady, setLikedLocal, setSavedLocal } = useAuth();
+  const { profile, likedPostIds, savedPostIds, reactions, setLikedLocal, setSavedLocal } = useAuth();
   // いいね/保存は AuthProvider が起動時に一括で取っている。カードごとに問い合わせると
   // 並んだ枚数ぶん往復が増えるため、ここでは受け取った集合を見るだけにする。
-  // 一括取得が失敗した環境(索引未作成など)でだけ、従来どおり個別に確認する。
+  // 個別に確認するのは、一括取得が**使えないと分かったとき**だけ。読み込み中に
+  // 問い合わせてしまうと、結局カードの枚数ぶん往復することになる。
+  const bulk = reactions !== "unavailable";
   const [fallbackLiked, setFallbackLiked] = useState(false);
   const [fallbackSaved, setFallbackSaved] = useState(false);
-  const liked = reactionsReady ? likedPostIds.has(post.id) : fallbackLiked;
-  const saved = reactionsReady ? savedPostIds.has(post.id) : fallbackSaved;
+  const liked = bulk ? likedPostIds.has(post.id) : fallbackLiked;
+  const saved = bulk ? savedPostIds.has(post.id) : fallbackSaved;
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [showTags, setShowTags] = useState(false);
   const [burst, setBurst] = useState(false);
   const [shareNote, setShareNote] = useState("");
 
   useEffect(() => {
-    if (!myUid || reactionsReady) return;
+    if (!myUid || reactions !== "unavailable") return;
     hasLiked(post.id, myUid).then(setFallbackLiked).catch(() => {});
     hasSaved(post.id, myUid).then(setFallbackSaved).catch(() => {});
-  }, [post.id, myUid, reactionsReady]);
+  }, [post.id, myUid, reactions]);
 
   function applyLiked(v: boolean) {
-    if (reactionsReady) setLikedLocal(post.id, v);
+    if (bulk) setLikedLocal(post.id, v);
     else setFallbackLiked(v);
   }
 
   function applySaved(v: boolean) {
-    if (reactionsReady) setSavedLocal(post.id, v);
+    if (bulk) setSavedLocal(post.id, v);
     else setFallbackSaved(v);
   }
 
