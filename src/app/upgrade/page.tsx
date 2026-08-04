@@ -138,7 +138,7 @@ function UpgradeContent() {
             <section className="mb-6 rounded-3xl border border-border bg-surface p-5">
               <h2 className="mb-3 text-sm font-bold">無料のままできること</h2>
               <ul className="space-y-2.5">
-                <Benefit>2択を作って友達に選んでもらう(1日1回)</Benefit>
+                <Benefit>2択を作ってみんなに選んでもらう(1日1回)</Benefit>
                 <Benefit>今日の2択の取り消し(1日1回まで)</Benefit>
                 <Benefit>AIによる着用イメージの生成</Benefit>
                 <Benefit>クローゼットの登録・タグ付け・絞り込み・値段の記録</Benefit>

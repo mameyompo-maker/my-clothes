@@ -45,7 +45,7 @@ function OnboardingContent() {
       return;
     }
     void (async () => {
-      setPhase({ kind: "working", label: "友達を追加しています…" });
+      setPhase({ kind: "working", label: "招待コードを確認しています…" });
       try {
         const { friendName } = await redeemInviteCode(user.uid, inviteFromLink);
         await refreshProfile();
@@ -123,7 +123,7 @@ function OnboardingContent() {
       {phase.kind === "added" && (
         <div className="w-full max-w-xs space-y-4">
           <div className="space-y-1">
-            <p className="text-base font-semibold">{phase.friendName}さんと友達になりました!</p>
+            <p className="text-base font-semibold">{phase.friendName}さんとつながりました!</p>
             <p className="text-xs text-muted-foreground">
               お互いのコーデ投稿に投票できるようになりました。
             </p>
@@ -199,7 +199,7 @@ function OnboardingContent() {
         <div className="w-full max-w-xs space-y-4">
           <p className="text-sm text-red-500">{phase.message}</p>
           <p className="text-xs text-muted-foreground">
-            プロフィール画面の「友達の招待コードを入力して追加」から、もう一度試せます。
+            プロフィール画面の「招待コードを入力してつながる」から、もう一度試せます。
           </p>
           <button
             onClick={() => router.replace("/feed")}

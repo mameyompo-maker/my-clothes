@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
-import { listClosetItems, watchNotifications, watchPublicStylePosts } from "@/lib/firestore";
+import {
+  listClosetItems,
+  listFollowingUids,
+  watchFollowedStylePosts,
+  watchNotifications,
+  watchPublicStylePosts,
+} from "@/lib/firestore";
 import { recommendHeadline } from "@/lib/recommend";
 import { hasWeatherOptIn, loadTodayWeather, type TodayWeather } from "@/lib/weather";
 import type { StylePost } from "@/types/models";
@@ -16,6 +22,8 @@ import { IconHeart, IconMessage, IconSearch, IconSparkles } from "@/components/i
 export default function HomeFeedPage() {
   const { user, profile, hiddenUids } = useAuth();
   const [posts, setPosts] = useState<StylePost[] | null>(null);
+  // フォロー中の人の「フォロワーだけ」投稿。公開分(posts)と混ぜて表示する。
+  const [followedPosts, setFollowedPosts] = useState<StylePost[]>([]);
   const [itemCount, setItemCount] = useState(0);
   const [unread, setUnread] = useState(0);
   // 「今日の気温に近い日のコーデ」フィルタ。天気に同意している人にだけ出す。
@@ -29,6 +37,20 @@ export default function HomeFeedPage() {
     );
     return unsub;
   }, [hiddenUids]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    let unsub: (() => void) | null = null;
+    listFollowingUids(user.uid).then((uids) => {
+      if (cancelled || uids.length === 0) return;
+      unsub = watchFollowedStylePosts(user.uid, uids, setFollowedPosts);
+    });
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -51,6 +73,21 @@ export default function HomeFeedPage() {
       setUnread(list.filter((n) => n.createdAt > lastRead && !hiddenUids.has(n.actorUid)).length);
     });
   }, [user, profile?.lastReadNotificationAt, hiddenUids]);
+
+  // 公開投稿とフォロー中の人の「フォロワーだけ」投稿を合流。重複は id で潰し、新しい順。
+  const allPosts =
+    posts === null
+      ? null
+      : (() => {
+          const seen = new Set<string>();
+          return [...posts, ...followedPosts]
+            .filter((p) => {
+              if (seen.has(p.id) || hiddenUids.has(p.ownerUid)) return false;
+              seen.add(p.id);
+              return true;
+            })
+            .sort((a, b) => b.createdAt - a.createdAt);
+        })();
 
   return (
     <>
@@ -114,7 +151,7 @@ export default function HomeFeedPage() {
 
         {/* 天気に同意している人には「今日の気温に近い日のコーデ」で絞れるようにする。
             気温は投稿時に焼き込んだ tempC(無い投稿はフィルタ時に出ない)。 */}
-        {weather && posts !== null && posts.length > 0 && (
+        {weather && allPosts !== null && allPosts.length > 0 && (
           <div className="no-scrollbar mb-1 flex gap-2 overflow-x-auto px-4">
             <Chip size="sm" selected={!nearTempOnly} onClick={() => setNearTempOnly(false)}>
               すべて
@@ -125,16 +162,16 @@ export default function HomeFeedPage() {
           </div>
         )}
 
-        {posts === null ? (
+        {allPosts === null ? (
           <div className="space-y-6 px-4">
             <Skeleton className="h-[420px]" />
             <Skeleton className="h-[420px]" />
           </div>
-        ) : posts.length === 0 ? (
+        ) : allPosts.length === 0 ? (
           <div className="px-4">
             <EmptyState
               title="まだ投稿がありません"
-              description="今日のコーデを全身写真で投稿してみましょう。友達がいなくても公開できます。"
+              description="今日のコーデを全身写真で投稿してみましょう。フォロワーがいなくても公開できます。"
               action={
                 <Link href="/post/new">
                   <PrimaryButton full={false}>最初の投稿をする</PrimaryButton>
@@ -146,10 +183,10 @@ export default function HomeFeedPage() {
           (() => {
             const visible =
               nearTempOnly && weather
-                ? posts.filter(
+                ? allPosts.filter(
                     (p) => typeof p.tempC === "number" && Math.abs(p.tempC - weather.maxTemp) <= 3
                   )
-                : posts;
+                : allPosts;
             if (visible.length === 0) {
               return (
                 <p className="px-4 py-10 text-center text-xs leading-relaxed text-muted-foreground">

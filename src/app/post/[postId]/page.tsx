@@ -244,7 +244,7 @@ function EditPostForm({
             みんなに公開
           </Chip>
           <Chip selected={visibility === "friends"} onClick={() => setVisibility("friends")}>
-            友達だけ
+            フォロワーだけ
           </Chip>
         </div>
       </Field>

@@ -47,6 +47,13 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
+        {/* Firebase 各API への接続を先に張っておく(DNS+TLSで数百msの短縮)。
+            React 19 が <head> へ巻き上げてくれる。 */}
+        <link rel="preconnect" href="https://firestore.googleapis.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://securetoken.googleapis.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://firebasestorage.googleapis.com" />
+        <link rel="preconnect" href="https://storage.googleapis.com" />
         <AuthProvider>
           <AppShell>{children}</AppShell>
         </AuthProvider>

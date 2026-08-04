@@ -15,8 +15,12 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
 
-    function isFriendOf(uid) {
-      return me() in get(/databases/$(database)/documents/users/$(uid)).data.friendUids;
+    // 自分が uid をフォローしているか。follows のIDは follower__following 固定なので
+    // exists 1回で判定できる。「フォロワー限定」の読み取り判定はすべてこれを使う
+    // (以前は相互フォロー=友達に限っていたが、2026-08-04 のKazさん指示で
+    // 「フォローしていれば見える」に緩めた。DMだけは相互フォロー限定のまま)。
+    function iFollow(uid) {
+      return exists(/databases/$(database)/documents/follows/$(me() + '__' + uid));
     }
 
     // users: 自分のドキュメントは自由。他人のドキュメントに触れるのは次の2つだけ。
@@ -129,10 +133,13 @@ service cloud.firestore {
         return resource.data.get('visibility', 'friends') == 'public';
       }
 
+      // 投稿主・共有された相手・公開に加えて、投稿主をフォローしている人も読める。
+      // 「フォロー中の人の2択がフィードに出る」ための要(2026-08-04)。
       function canReadOutfit() {
         return resource.data.ownerUid == me()
           || me() in resource.data.sharedWithUids
-          || isPublicOutfit();
+          || isPublicOutfit()
+          || iFollow(resource.data.ownerUid);
       }
 
       allow get: if isSignedIn() && (resource == null || canReadOutfit());
@@ -150,17 +157,21 @@ service cloud.firestore {
         // 公開の2択は誰でも投票できるのに、読みが友達限定のままだと
         // 「投票はできるが集計が見えない」という中途半端な状態になる(実際になっていた)。
         // 公開投稿の票は誰でも読めるようにする。
+        // 2026-08-04: 投稿主をフォローしている人にも読み・投票を開放
+        // (本体の canReadOutfit と揃える。見えるのに投票できないと中途半端なため)。
         allow read: if isSignedIn()
           && (get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid == me()
               || me() in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids
-              || get(/databases/$(database)/documents/outfitPosts/$(postId)).data.get('visibility', 'friends') == 'public');
+              || get(/databases/$(database)/documents/outfitPosts/$(postId)).data.get('visibility', 'friends') == 'public'
+              || iFollow(get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid));
         allow create, update: if isSignedIn() && me() == voterUid
           && request.resource.data.voterUid == voterUid
           && request.resource.data.postId == postId
           && get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid != me()
-          // 公開されている2択は誰でも投票できる。非公開なら共有された友達だけ。
+          // 公開されている2択は誰でも投票できる。非公開なら共有相手かフォロワー。
           && (get(/databases/$(database)/documents/outfitPosts/$(postId)).data.get('visibility', 'friends') == 'public'
-              || me() in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids);
+              || me() in get(/databases/$(database)/documents/outfitPosts/$(postId)).data.sharedWithUids
+              || iFollow(get(/databases/$(database)/documents/outfitPosts/$(postId)).data.ownerUid));
         allow delete: if false;
       }
 
@@ -174,13 +185,14 @@ service cloud.firestore {
       }
     }
 
-    // stylePosts(全身写真): public は誰でも、friends は友達と本人だけ。
-    // 友達がいなくても public に投稿できることがこの画面の狙い。
+    // stylePosts(全身写真): public は誰でも、'friends'(表示上は「フォロワーだけ」)は
+    // 投稿主をフォローしている人と本人だけ。フォロワーがいなくても public に投稿できる。
+    // 値の 'friends' はデータ互換のため残している(意味は「フォロワー限定」に変わった)。
     match /stylePosts/{postId} {
       function canReadPost() {
         return resource.data.visibility == 'public'
           || resource.data.ownerUid == me()
-          || isFriendOf(resource.data.ownerUid);
+          || iFollow(resource.data.ownerUid);
       }
 
       // 消えた投稿を開いたときに「権限なし」ではなく「見つからない」にしたいので、
@@ -249,9 +261,18 @@ service cloud.firestore {
           && !exists(/databases/$(database)/documents/blocks/$(members[1] + '__' + me()));
       }
 
+      // DMを始められるのは相互フォローの相手だけ(2026-08-04 Kazさん指示)。
+      // friendUids は「相互フォロー」の非正規化キャッシュなので、相手の friendUids に
+      // 自分が入っていること = 相互フォロー成立。既存スレッドの継続(update/messages)は
+      // 縛らない——過去にやりとりした相手との履歴まで封じる必要はないため。
+      function otherMemberOf(members) {
+        return members[0] == me() ? members[1] : members[0];
+      }
+
       allow create: if isSignedIn()
         && me() in request.resource.data.memberUids
         && request.resource.data.memberUids.size() == 2
+        && me() in get(/databases/$(database)/documents/users/$(otherMemberOf(request.resource.data.memberUids))).data.get('friendUids', [])
         && notBlockedPair(request.resource.data.memberUids);
       // lastReadAt(既読時刻)は「自分のキー」しか変えられない。
       // これが無いと相手の既読を偽装したり、勝手に未読へ戻したりできてしまう。

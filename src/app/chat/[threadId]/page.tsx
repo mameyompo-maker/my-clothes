@@ -125,8 +125,8 @@ export default function ChatThreadPage() {
             <IconButton label="戻る" onClick={() => router.back()}>
               <IconChevronLeft className="h-5 w-5" />
             </IconButton>
-            <Avatar src={other?.avatarUrl} name={other?.name ?? "友達"} size={32} />
-            <span className="truncate text-sm font-bold">{other?.name ?? "友達"}</span>
+            <Avatar src={other?.avatarUrl} name={other?.name ?? "ユーザー"} size={32} />
+            <span className="truncate text-sm font-bold">{other?.name ?? "ユーザー"}</span>
           </div>
         }
       />

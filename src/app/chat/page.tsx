@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { ensureChatThread, getFriendProfiles, listFollowingUids, watchChatThreads } from "@/lib/firestore";
+import { ensureChatThread, getFriendProfiles, watchChatThreads } from "@/lib/firestore";
 import { threadId, type ChatThread, type UserProfile } from "@/types/models";
 import { Avatar, EmptyState, IconButton, Skeleton, TopBar, timeAgo } from "@/components/ui";
 import { IconChevronLeft, IconMessage } from "@/components/icons";
@@ -22,15 +22,13 @@ export default function ChatListPage() {
     return watchChatThreads(user.uid, setThreads);
   }, [user]);
 
-  // 送れる相手 = 友達(相互フォロー)+ 自分がフォローしている人。
-  // 友達だけに絞ると、フォローした直後に誰にも送れず「使えない」ように見えるため広めに取る。
+  // 送れる相手 = 相互フォローの相手だけ(2026-08-04 Kazさん指示。ルールでも縛っている)。
+  // フォロー中の人の投稿や2択は見えるが、DMだけは相互フォローが成立してから。
   useEffect(() => {
     if (!profile || !user) return;
     let cancelled = false;
     (async () => {
-      const followingUids = await listFollowingUids(user.uid);
-      const uids = Array.from(new Set([...(profile.friendUids ?? []), ...followingUids]));
-      const people = await getFriendProfiles(uids);
+      const people = await getFriendProfiles(profile.friendUids ?? []);
       if (cancelled) return;
       setContacts(people);
       setPeopleByUid(Object.fromEntries(people.map((p) => [p.uid, p])));
@@ -86,7 +84,7 @@ export default function ChatListPage() {
           <EmptyState
             icon={<IconMessage className="h-10 w-10" />}
             title="まだ送れる相手がいません"
-            description="招待コードで友達を追加するか、気になる人をフォローすると、ここからメッセージを送れます。"
+            description="メッセージを送れるのは、お互いにフォローし合っている相手です。招待コードを使うか、フォローを返してもらいましょう。"
             action={
               <Link href="/search" className="text-sm font-bold text-accent">
                 ユーザーをさがす →

@@ -3,7 +3,13 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import { auth, googleAuthProvider, isFirebaseConfigured } from "@/lib/firebase";
-import { ensureUserProfile, getUserProfile, listBlockedByUids, listBlockedUids } from "@/lib/firestore";
+import {
+  ensureUserProfile,
+  getUserProfile,
+  getUserProfileFromCache,
+  listBlockedByUids,
+  listBlockedUids,
+} from "@/lib/firestore";
 import type { UserProfile } from "@/types/models";
 
 interface AuthContextValue {
@@ -36,14 +42,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
-        const p = await ensureUserProfile(firebaseUser.uid, firebaseUser.displayName ?? "名無しさん", firebaseUser.photoURL);
-        setProfile(p);
-        // ブロックの読み込みに失敗しても、アプリ自体は使えるようにしておく。
-        const [mine, theirs] = await Promise.all([
+        // 起動を速くするための2段構え:
+        //  1. ブロック一覧は画面表示を待たせない(裏で読み、届き次第フィードから除外)。
+        //  2. プロフィールはまずローカルキャッシュで即描画し、サーバー確定値で置き換える。
+        // 以前は「プロフィール → ブロック2本」を直列で待ってから描画しており、
+        // ネットワーク往復3回ぶんスピナーを見せていた。
+        void Promise.all([
           listBlockedUids(firebaseUser.uid).catch(() => [] as string[]),
           listBlockedByUids(firebaseUser.uid).catch(() => [] as string[]),
-        ]);
-        setHiddenUids(new Set([...mine, ...theirs]));
+        ]).then(([mine, theirs]) => setHiddenUids(new Set([...mine, ...theirs])));
+
+        const cached = await getUserProfileFromCache(firebaseUser.uid);
+        if (cached) {
+          setProfile(cached);
+          setLoading(false);
+        }
+        const p = await ensureUserProfile(firebaseUser.uid, firebaseUser.displayName ?? "名無しさん", firebaseUser.photoURL);
+        setProfile(p);
       } else {
         setProfile(null);
         setHiddenUids(new Set());

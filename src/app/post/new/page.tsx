@@ -251,7 +251,7 @@ function NewStylePostContent() {
             <IconCamera className="h-10 w-10" />
             <span className="text-sm font-semibold">全身写真を撮る / 選ぶ</span>
             <span className="px-10 text-center text-[11px] leading-relaxed">
-              今日決めたコーデを記録しましょう。友達がいなくても公開できます
+              今日決めたコーデを記録しましょう。フォロワーがいなくても公開できます
             </span>
           </button>
         )}
@@ -273,7 +273,7 @@ function NewStylePostContent() {
                 みんなに公開
               </Chip>
               <Chip selected={visibility === "friends"} onClick={() => setVisibility("friends")}>
-                友達だけ
+                フォロワーだけ
               </Chip>
             </div>
           </Field>

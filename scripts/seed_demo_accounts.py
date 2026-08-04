@@ -8,7 +8,9 @@
 
 方針:
 - 人物写真は一切使わない。アバターはフラットイラスト(SVG)、投稿は服の
-  「置き画ボード」。架空であることが視覚的にも伝わるようにする。
+  「置き画ボード」+「本人が着ている着用画」(アバターと同じ配色のフラット
+  イラスト。2026-08-04 Kazさん依頼で全員1枚ずつ追加)。
+  架空であることが視覚的にも伝わるようにする。
 - プロフィールと投稿本文の両方に「実在しない」ことを明記する。
 - ブランドはすべて架空の「MC STUDIO」。アイテムタグ・値段公開のお手本を兼ねる。
 - ドキュメントIDはすべて demo_ 始まりの固定値。**再実行すると同じIDに上書き**され、
@@ -210,6 +212,339 @@ def board_svg(bg, accent, title_note, items, footer):
 </svg>"""
 
 
+# ---------------------------------------------------------------- wearing SVGs
+# 「本人が着ている着用画」(Kazさん依頼 2026-08-04)。
+# 人物写真は一切使わない方針はそのまま、アバターと同じ配色のフラットイラストで
+# 全身の着用イメージを描く。服の色はクローゼットの実物写真の色味に合わせている。
+# 座標系: 900x1200。頭の中心 (450,320)、肩 y≈475、パンツ裾 y≈1016(全体を +26 下げて配置)。
+
+def _gingham_defs(pid: str, base: str, line: str) -> str:
+    return (
+        f'<pattern id="{pid}" width="26" height="26" patternUnits="userSpaceOnUse">'
+        f'<rect width="26" height="26" fill="{base}"/>'
+        f'<rect width="13" height="26" fill="{line}" opacity="0.45"/>'
+        f'<rect width="26" height="13" fill="{line}" opacity="0.45"/>'
+        f"</pattern>"
+    )
+
+
+def _neck(skin):
+    return f'<rect x="428" y="382" width="44" height="52" rx="18" fill="{skin}"/>'
+
+
+def _arms(color, sleeve, skin):
+    """腕。round-cap の太い線で肩→手首。sleeve: long / short / none(素肌)"""
+    if sleeve == "long":
+        return (
+            f'<path d="M392 474 Q352 522 350 660" stroke="{color}" stroke-width="46" stroke-linecap="round" fill="none"/>'
+            f'<path d="M508 474 Q548 522 550 660" stroke="{color}" stroke-width="46" stroke-linecap="round" fill="none"/>'
+            f'<circle cx="350" cy="674" r="17" fill="{skin}"/><circle cx="550" cy="674" r="17" fill="{skin}"/>'
+        )
+    if sleeve == "short":
+        return (
+            f'<path d="M394 478 Q360 502 356 554" stroke="{color}" stroke-width="50" stroke-linecap="round" fill="none"/>'
+            f'<path d="M506 478 Q540 502 544 554" stroke="{color}" stroke-width="50" stroke-linecap="round" fill="none"/>'
+            f'<path d="M354 566 L350 650" stroke="{skin}" stroke-width="32" stroke-linecap="round" fill="none"/>'
+            f'<path d="M546 566 L550 650" stroke="{skin}" stroke-width="32" stroke-linecap="round" fill="none"/>'
+            f'<circle cx="350" cy="666" r="16" fill="{skin}"/><circle cx="550" cy="666" r="16" fill="{skin}"/>'
+        )
+    return (
+        f'<path d="M396 472 Q356 512 350 654" stroke="{skin}" stroke-width="34" stroke-linecap="round" fill="none"/>'
+        f'<path d="M504 472 Q544 512 550 654" stroke="{skin}" stroke-width="34" stroke-linecap="round" fill="none"/>'
+        f'<circle cx="350" cy="664" r="16" fill="{skin}"/><circle cx="550" cy="664" r="16" fill="{skin}"/>'
+    )
+
+
+def _torso(fill, hem=664, detail=""):
+    return f'<path d="M382 452 Q450 476 518 452 L528 {hem - 16} Q450 {hem + 16} 372 {hem - 16} Z" fill="{fill}"/>{detail}'
+
+
+def _wide_pants(fill, waist=648, hem=1016):
+    return (
+        f'<path d="M374 {waist} L354 {hem} L446 {hem} L450 764 L454 {hem} L546 {hem} L526 {waist} Z" fill="{fill}"/>'
+        f'<rect x="374" y="{waist - 14}" width="152" height="22" rx="10" fill="{fill}"/>'
+    )
+
+
+def _slacks(fill, crease, waist=648, hem=1012):
+    return (
+        f'<path d="M382 {waist} L370 {hem} L440 {hem} L450 752 L460 {hem} L530 {hem} L518 {waist} Z" fill="{fill}"/>'
+        f'<rect x="382" y="{waist - 14}" width="136" height="22" rx="10" fill="{fill}"/>'
+        f'<path d="M404 {waist + 60} L398 {hem - 12}" stroke="{crease}" stroke-width="4" fill="none"/>'
+        f'<path d="M496 {waist + 60} L502 {hem - 12}" stroke="{crease}" stroke-width="4" fill="none"/>'
+    )
+
+
+def _shoes(color, sole="#00000022", chunky=False):
+    sole_h = 18 if chunky else 10
+    return (
+        f'<rect x="352" y="1008" width="98" height="36" rx="16" fill="{color}"/>'
+        f'<rect x="450" y="1008" width="98" height="36" rx="16" fill="{color}"/>'
+        f'<rect x="348" y="1040" width="106" height="{sole_h}" rx="{sole_h // 2}" fill="{sole}"/>'
+        f'<rect x="446" y="1040" width="106" height="{sole_h}" rx="{sole_h // 2}" fill="{sole}"/>'
+    )
+
+
+def _sandals(skin, strap):
+    return (
+        f'<rect x="356" y="1012" width="92" height="30" rx="14" fill="{skin}"/>'
+        f'<rect x="452" y="1012" width="92" height="30" rx="14" fill="{skin}"/>'
+        f'<path d="M366 1024 L438 1024" stroke="{strap}" stroke-width="8"/>'
+        f'<path d="M462 1024 L534 1024" stroke="{strap}" stroke-width="8"/>'
+        f'<rect x="352" y="1042" width="100" height="10" rx="5" fill="{strap}"/>'
+        f'<rect x="448" y="1042" width="100" height="10" rx="5" fill="{strap}"/>'
+    )
+
+
+def _head(skin, hair_back, hair_front, extra=""):
+    """頭。アバターと同じ顔立ち・髪色(座標は頭の中心が原点、半径 76x82)。"""
+    return (
+        f'<g transform="translate(450 320)">{hair_back}'
+        f'<ellipse cx="0" cy="0" rx="76" ry="82" fill="{skin}"/>'
+        f"{hair_front}"
+        f'<circle cx="-28" cy="12" r="7" fill="#38302a"/><circle cx="28" cy="12" r="7" fill="#38302a"/>'
+        f'<circle cx="-46" cy="34" r="11" fill="#ef9f9f" opacity="0.4"/><circle cx="46" cy="34" r="11" fill="#ef9f9f" opacity="0.4"/>'
+        f'<path d="M-14 44 Q0 56 14 44" stroke="#b4685f" stroke-width="4.5" fill="none" stroke-linecap="round"/>'
+        f"{extra}</g>"
+    )
+
+
+# 頭部の見た目(肌・後ろ髪・前髪・飾り)。AVATARS と同じ人物に見えるよう配色を揃える。
+HEADS = {
+    "demo_aoi": (
+        "#f6d7c0",
+        '<path d="M-88 -8 a88 88 0 1 1 176 0 v56 q0 26 -26 26 h-124 q-26 0 -26 -26 z" fill="#4a3628"/>',
+        '<path d="M-72 -8 Q-68 -84 0 -86 Q68 -84 72 -8 Q46 -46 0 -46 Q-46 -46 -72 -8 Z" fill="#4a3628"/>',
+        "",
+    ),
+    "demo_rin": (
+        "#f2cdb5",
+        # 後ろ髪は左右2束に分ける(1枚の面で塗るとブラウスの胸元まで覆ってしまう。
+        # 中央の谷は y=60 まで上げてあり、顔(半径82)の裏に隠れる)。
+        '<path d="M-80 -20 Q-80 -88 0 -88 Q80 -88 80 -20 L88 170 Q60 152 48 162 L42 60 Q0 84 -42 60 L-48 162 Q-60 152 -88 170 Z" fill="#2c2624"/>',
+        '<path d="M-74 -4 Q-74 -84 0 -86 Q74 -84 74 -4 Q62 -50 22 -54 Q8 -34 0 -34 Q-8 -34 -22 -54 Q-62 -50 -74 -4 Z" fill="#2c2624"/>',
+        '<circle cx="-74" cy="28" r="5" fill="#d9b64f"/><circle cx="74" cy="28" r="5" fill="#d9b64f"/>',
+    ),
+    "demo_hinano": (
+        "#f8dcc8",
+        '<circle cx="-90" cy="-88" r="36" fill="#8a5a3b"/><circle cx="90" cy="-88" r="36" fill="#8a5a3b"/>'
+        '<path d="M-84 -4 a84 84 0 1 1 168 0 v50 q0 24 -24 24 h-120 q-24 0 -24 -24 z" fill="#8a5a3b"/>',
+        '<path d="M-70 -6 Q-66 -82 0 -84 Q66 -82 70 -6 Q46 -44 0 -42 Q-46 -44 -70 -6 Z" fill="#8a5a3b"/>',
+        '<circle cx="-90" cy="-116" r="10" fill="#f2b6c6"/><circle cx="90" cy="-116" r="10" fill="#f2b6c6"/>',
+    ),
+    "demo_yuto": (
+        "#e8c39e",
+        '<path d="M-86 4 Q-92 -88 0 -90 Q92 -88 86 4 v22 h-172 z" fill="#26221f"/>',
+        '<path d="M-82 8 Q-84 -84 0 -86 Q84 -84 82 8 Q70 -32 0 -34 Q-70 -32 -82 8 Z" fill="#26221f"/>',
+        "",
+    ),
+    "demo_kai": (
+        "#f2cdb5",
+        '<path d="M-82 0 Q-82 -86 0 -88 Q82 -86 82 0 v18 h-164 z" fill="#3b2f26"/>',
+        '<path d="M-76 -2 Q-74 -82 0 -84 Q74 -82 76 -2 Q72 -44 22 -50 L0 -20 L-22 -50 Q-72 -44 -76 -2 Z" fill="#3b2f26"/>',
+        "",
+    ),
+    "demo_sora": (
+        "#e0b48f",
+        '<circle cx="-58" cy="-58" r="34" fill="#5d4630"/><circle cx="-20" cy="-76" r="36" fill="#5d4630"/>'
+        '<circle cx="22" cy="-76" r="36" fill="#5d4630"/><circle cx="58" cy="-56" r="34" fill="#5d4630"/>'
+        '<circle cx="-78" cy="-18" r="28" fill="#5d4630"/><circle cx="78" cy="-18" r="28" fill="#5d4630"/>',
+        '<path d="M-70 -12 Q-64 -76 0 -78 Q64 -76 70 -12 Q44 -40 0 -40 Q-44 -40 -70 -12 Z" fill="#5d4630"/>',
+        "",
+    ),
+}
+
+
+def _body_aoi(skin):
+    # 白の半袖ニット(裾リブ)× 淡色ワイドデニム × 白スニーカー。裾出し。
+    return "".join([
+        _neck(skin),
+        _arms("#f7f5f1", "short", skin),
+        _wide_pants("#b8cfe6"),
+        _torso("#f7f5f1", hem=676, detail=(
+            '<path d="M384 650 Q450 674 516 650" stroke="#e4ded2" stroke-width="5" fill="none"/>'
+            '<path d="M416 470 Q450 488 484 470" stroke="#e4ded2" stroke-width="4" fill="none"/>'
+        )),
+        _shoes("#ffffff", sole="#d8dde3"),
+    ])
+
+
+def _body_rin(skin):
+    # 白フリルブラウス × 黒ワイドスラックス × 黒フラット。タックイン。
+    frills = "".join(
+        f'<circle cx="450" cy="{y}" r="9" fill="#ffffff" stroke="#00000014"/>' for y in range(496, 640, 28)
+    )
+    collar = '<path d="M424 452 Q450 478 476 452 L470 444 Q450 462 430 444 Z" fill="#efeae2"/>'
+    return "".join([
+        _neck(skin),
+        _arms("#fbf9f6", "long", skin),
+        _torso("#fbf9f6", hem=660, detail=collar + frills),
+        _slacks("#33343a", "#4a4b52"),
+        _shoes("#26262b"),
+    ])
+
+
+def _body_hinano(skin):
+    # 白レースキャミワンピ + 黄の花柄カーデ肩掛け + サンダル。
+    chest = f'<path d="M404 438 Q450 468 496 438 L500 474 Q450 498 400 474 Z" fill="{skin}"/>'
+    legs = (
+        f'<path d="M416 870 L410 1004" stroke="{skin}" stroke-width="30" stroke-linecap="round" fill="none"/>'
+        f'<path d="M484 870 L490 1004" stroke="{skin}" stroke-width="30" stroke-linecap="round" fill="none"/>'
+    )
+    dress = '<path d="M392 470 Q450 492 508 470 L544 884 Q450 916 356 884 Z" fill="#fdfbf8"/>'
+    lace = "".join(f'<circle cx="{x}" cy="896" r="13" fill="#fdfbf8"/>' for x in range(368, 536, 24))
+    straps = (
+        '<path d="M420 478 L426 448" stroke="#fdfbf8" stroke-width="7"/>'
+        '<path d="M480 478 L474 448" stroke="#fdfbf8" stroke-width="7"/>'
+    )
+    flowers = "".join(
+        f'<circle cx="{x}" cy="{y}" r="7" fill="#ffffff"/><circle cx="{x}" cy="{y}" r="3" fill="#e88fae"/>'
+        for x, y in [(376, 540), (372, 592), (524, 540), (528, 592)]
+    )
+    cardigan = (
+        '<path d="M398 458 Q378 480 374 636" stroke="#f0d264" stroke-width="42" stroke-linecap="round" fill="none"/>'
+        '<path d="M502 458 Q522 480 526 636" stroke="#f0d264" stroke-width="42" stroke-linecap="round" fill="none"/>'
+        + flowers
+    )
+    return "".join([
+        _neck(skin), chest,
+        _arms("", "none", skin),
+        legs,
+        _sandals(skin, "#b98a68"),
+        dress, lace, straps, cardigan,
+    ])
+
+
+def _body_yuto(skin):
+    # ネイビーギンガムシャツ × インディゴワイドデニム × 黒厚底ローファー。タックイン。
+    collar = '<path d="M426 450 L450 486 L474 450 L492 460 L450 512 L408 460 Z" fill="#2f4468"/>'
+    buttons = "".join(f'<circle cx="450" cy="{y}" r="4" fill="#ffffff" opacity="0.85"/>' for y in (526, 566, 606))
+    return "".join([
+        _neck(skin),
+        _arms("url(#gingham)", "long", skin),
+        _torso("url(#gingham)", hem=656, detail=collar + buttons),
+        _wide_pants("#3a5378"),
+        _shoes("#1f1f24", sole="#0d0d10", chunky=True),
+    ])
+
+
+def _body_kai(skin):
+    # 黒ニットポロ × グレースラックス × 黒ペニーローファー。裾出し。
+    collar = (
+        '<path d="M424 448 L450 480 L476 448 L470 440 Q450 454 430 440 Z" fill="#1c1c20"/>'
+        '<path d="M450 480 L450 522" stroke="#1c1c20" stroke-width="4"/>'
+        '<circle cx="450" cy="496" r="3.5" fill="#5a5a62"/><circle cx="450" cy="512" r="3.5" fill="#5a5a62"/>'
+    )
+    strap = (
+        '<path d="M368 1022 L436 1022" stroke="#3a3436" stroke-width="7"/>'
+        '<path d="M464 1022 L532 1022" stroke="#3a3436" stroke-width="7"/>'
+    )
+    return "".join([
+        _neck(skin),
+        _arms("#26262a", "short", skin),
+        _slacks("#9a9ba3", "#8a8b93"),
+        _torso("#26262a", hem=672, detail=collar),
+        _shoes("#221f1f"),
+        strap,
+    ])
+
+
+def _body_sora(skin):
+    # アイボリーシャツ(開襟・裾出し)× 淡色ワイドデニム × ベージュスニーカー。
+    collar = (
+        f'<path d="M436 452 L450 478 L464 452 Z" fill="{skin}"/>'
+        '<path d="M428 450 L450 486 L436 494 Z" fill="#e6dfc9"/>'
+        '<path d="M472 450 L450 486 L464 494 Z" fill="#e6dfc9"/>'
+        '<path d="M450 494 L450 664" stroke="#e6dfc9" stroke-width="3"/>'
+    )
+    return "".join([
+        _neck(skin),
+        _arms("#f2ecdc", "long", skin),
+        _wide_pants("#b8cfe6"),
+        _torso("#f2ecdc", hem=684, detail=collar),
+        _shoes("#efe9dc", sole="#d9d0bc"),
+    ])
+
+
+def wearing_svg(bg, note, defs, body_svg, head_svg, items_line, footer):
+    """着用画の台紙。board_svg とトーンを揃えた 900x1200(3:4)。"""
+    # アイテムが3点あると1行に収まらないので、長い行は幅820pxに詰めて描く。
+    items_fit = ' textLength="820" lengthAdjust="spacingAndGlyphs"' if len(items_line) > 34 else ""
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1200">
+<defs>{defs}</defs>
+<rect width="900" height="1200" fill="{bg}"/>
+<circle cx="70" cy="1130" r="150" fill="#ffffff" opacity="0.35"/>
+<circle cx="850" cy="120" r="120" fill="#ffffff" opacity="0.35"/>
+<text x="60" y="110" font-size="64" font-weight="bold" letter-spacing="6" fill="#3d3630" font-family="Georgia,'Times New Roman',serif">MC STUDIO</text>
+<text x="60" y="152" font-size="26" fill="#6b625a" font-family="'Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif">OFFICIAL SAMPLE ── 着用イメージ({note})</text>
+<text x="60" y="190" font-size="22" fill="#8a8178" font-family="'Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif">この人物・ブランドは実在しません(公式サンプルのイラスト)</text>
+<g transform="translate(0 26)">
+<ellipse cx="450" cy="1052" rx="180" ry="16" fill="#000000" opacity="0.06"/>
+{body_svg}
+{head_svg}
+</g>
+<text x="450" y="1122" text-anchor="middle" font-size="24" fill="#6b625a"{items_fit} font-family="'Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif">{items_line}</text>
+<text x="450" y="1166" text-anchor="middle" font-size="26" font-weight="bold" fill="#6b625a" font-family="'Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif">{footer}</text>
+</svg>"""
+
+
+# 着用画のアイテムタグ位置(カテゴリー → 画像上の相対座標)。
+WEAR_TAG_POS = {
+    "tops": (0.5, 0.44),
+    "bottoms": (0.5, 0.70),
+    "shoes": (0.5, 0.87),
+    "onepiece": (0.5, 0.53),
+    "outerwear": (0.62, 0.44),
+}
+
+# 各人の着用画の中身。items は CATALOG のキー(着ている服=アイテムタグになる)。
+WEARING = {
+    "demo_aoi": {
+        "note": "淡色カジュアル", "body": _body_aoi, "defs": "",
+        "items": ["white-knit-tee", "light-denim-w"],
+        "caption": "着用イメージ🕊 白ニット×淡色デニム。上をゆるっと、下は落ち感でバランスよく!",
+        "tags": ["着用イメージ", "淡色コーデ", "カジュアル", "サンプル投稿"],
+        "footer": "あなたの今日のコーデも投稿してみてね",
+    },
+    "demo_rin": {
+        "note": "通勤きれいめ", "body": _body_rin, "defs": "",
+        "items": ["frill-blouse", "black-slacks-w"],
+        "caption": "フリルブラウス×黒スラックスの着用イメージ。甘さは上半身だけに集めるのがコツです。",
+        "tags": ["着用イメージ", "オフィスカジュアル", "きれいめ", "サンプル投稿"],
+        "footer": "タグをタップすると服の詳細が見られます",
+    },
+    "demo_hinano": {
+        "note": "甘めガーリー", "body": _body_hinano, "defs": "",
+        "items": ["lace-dress", "floral-cardigan"],
+        "caption": "レースワンピ+花柄カーデ肩掛けの着用イメージ🎀 足元はサンダルでちょっと外し!",
+        "tags": ["着用イメージ", "ガーリー", "ワンピース", "サンプル投稿"],
+        "footer": "まねっこ大歓迎!好きな服で試してみてね",
+    },
+    "demo_yuto": {
+        "note": "古着ミックス", "body": _body_yuto,
+        "defs": _gingham_defs("gingham", "#f5f7fa", "#34486e"),
+        "items": ["navy-gingham", "indigo-denim", "chunky-loafer"],
+        "caption": "ギンガム×ワイドデニムの着用イメージ🔥 タックインで重心を上げるとキマる!",
+        "tags": ["着用イメージ", "ストリート", "古着ミックス", "サンプル投稿"],
+        "footer": "2択に迷ったらみんなに投げてみよう",
+    },
+    "demo_kai": {
+        "note": "大人きれいめ", "body": _body_kai, "defs": "",
+        "items": ["knit-polo", "gray-slacks-m", "penny-loafer"],
+        "caption": "ニットポロ×グレースラックスの着用イメージ。アイロン不要で「ちゃんと見える」やつです。",
+        "tags": ["着用イメージ", "きれいめ", "大人カジュアル", "サンプル投稿"],
+        "footer": "服に値段を登録すると「全身でいくら」も出せます",
+    },
+    "demo_sora": {
+        "note": "ナチュラル", "body": _body_sora, "defs": "",
+        "items": ["ivory-shirt", "light-denim-m"],
+        "caption": "生成りシャツ×淡色デニムの着用イメージ。質感に差があると少ない服でも単調に見えません。",
+        "tags": ["着用イメージ", "ナチュラル", "ミニマル", "サンプル投稿"],
+        "footer": "クローゼットに服を入れるところから始めよう",
+    },
+}
+
+
 # ---------------------------------------------------------------- data
 
 # (rel_path, label, category, hashtags, price, color, size)
@@ -245,6 +580,7 @@ PERSONAS = [
         "uid": "demo_aoi", "name": "あおい(公式サンプル)", "handle": "aoi_mc",
         "bio": f"20歳・大学2年。淡色とデニムがすき🕊 朝は結局いつも2択で迷ってる\n{DISCLAIMER}",
         "wardrobe": "women", "height": 158, "bodyType": "wave", "personalColor": "summer",
+        "personalColorSub": "spring",
         "genres": ["casual", "korean"],
         "items": ["white-knit-tee", "sax-shirt", "light-denim-w", "cargo-shorts"],
         "favorites": ["white-knit-tee"],
@@ -310,6 +646,7 @@ PERSONAS = [
         "uid": "demo_kai", "name": "かい(公式サンプル)", "handle": "kai_mc",
         "bio": f"26歳・営業。平日はシャツ、休日もだいたいシャツ。革靴を育てるのが趣味\n{DISCLAIMER}",
         "wardrobe": "men", "height": 178, "bodyType": "straight", "personalColor": "winter",
+        "personalColorSub": "summer",
         "genres": ["kirei", "classic"],
         "items": ["white-shirt-m", "knit-polo", "gray-slacks-m", "penny-loafer"],
         "favorites": ["penny-loafer"],
@@ -412,10 +749,11 @@ def main():
             "height": p["height"],
             "bodyType": p["bodyType"],
             "personalColor": p["personalColor"],
+            "personalColorSub": p.get("personalColorSub", "unknown"),
             "favoriteGenres": p["genres"],
             "followerCount": len(all_uids) - 1,
             "followingCount": len(all_uids) - 1,
-            "postCount": 1,
+            "postCount": 2,  # 置き画ボード + 着用画
             "primaryWardrobe": p["wardrobe"],
             "official": True,
         })
@@ -499,6 +837,59 @@ def main():
             "avatarUrl": f"https://storage.googleapis.com/{BUCKET}/demo/avatars/{c_uid}.svg",
             "text": c_text, "createdAt": NOW - (16 - idx * 2) * HOUR,
         })
+
+        # 4.6) 着用画(本人が着ている姿のイラスト)→ stylePost 2本目(Kazさん依頼 2026-08-04)
+        w = WEARING[uid]
+        skin, hair_back, hair_front, head_extra = HEADS[uid]
+        wear_items_line = " / ".join(
+            f"{CATALOG[k][1]} ¥{CATALOG[k][4]:,}" for k in w["items"]
+        )
+        wear_svg = wearing_svg(
+            p["board"]["bg"], w["note"], w["defs"], w["body"](skin),
+            _head(skin, hair_back, hair_front, head_extra),
+            f"着ているのは:{wear_items_line}", w["footer"],
+        )
+        wear_url = upload_public(f"demo/styles/{uid}_wear1.svg", wear_svg.encode("utf-8"), "image/svg+xml")
+
+        wear_id = f"demo_style_{uid.removeprefix('demo_')}_wear"
+        wear_tags = []
+        for k in w["items"]:
+            _, label, category, _, _, _, _ = CATALOG[k]
+            tx, ty = WEAR_TAG_POS.get(category, (0.5, 0.5))
+            wear_tags.append({
+                "itemId": item_id(uid, k),
+                "label": label,
+                "brand": "MC STUDIO",
+                "category": category,
+                "x": tx,
+                "y": ty,
+            })
+        wear_likers = STYLE_LIKES[uid][:2]
+        wear_hashtags = [t for key in w["items"] for t in CATALOG[key][3]]
+        set_doc(f"stylePosts/{wear_id}", {
+            "id": wear_id,
+            "ownerUid": uid,
+            "ownerName": p["name"],
+            "ownerAvatarUrl": avatar_url,
+            "ownerHandle": p["handle"],
+            "imageUrl": wear_url,
+            "caption": f"{w['caption']}\n※イラストは公式サンプルの着用イメージです。\n{DISCLAIMER}",
+            "itemTags": wear_tags,
+            "genres": p["genres"],
+            "season": "summer",
+            "visibility": "public",
+            "likeCount": len(wear_likers),
+            "commentCount": 0,
+            "createdAt": NOW - (9 - idx) * HOUR,
+            "outfitPostId": None,
+            "placeName": None,
+            "hashtags": list(dict.fromkeys(wear_hashtags + w["tags"]))[:20],
+        })
+        for liker in wear_likers:
+            set_doc(f"stylePosts/{wear_id}/likes/{liker}", {
+                "id": liker, "postId": wear_id, "uid": liker,
+                "createdAt": NOW - (8 - idx) * HOUR,
+            })
 
         # 5) 2択(公開・期限3日。composeStatus=failed でボード表示に落とす)
         o = p["outfit"]

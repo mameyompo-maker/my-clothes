@@ -584,7 +584,7 @@ export default function CreatePostPage() {
                     ? "プレミアムなので何回でも取り消せます。"
                     : `無料プランで取り消せるのは1日${FREE_UNDO_PER_DAY}回までです。`}
                   <br />
-                  取り消すと、友達がくれた投票も一緒に消えます。
+                  取り消すと、もらった投票も一緒に消えます。
                 </p>
                 <div className="mt-3">
                   <SecondaryButton onClick={handleUndoToday} disabled={undoing}>
@@ -1078,14 +1078,14 @@ export default function CreatePostPage() {
 
         <Field
           label="公開範囲"
-          hint="公開にすると、友達以外の人も見て投票できます。反応が集まりやすくなります。"
+          hint="「フォロワーだけ」はあなたをフォローしている人が見て投票できます。公開にすると、それ以外の人にも届きます。"
         >
           <div className="flex gap-2">
             <Chip
               selected={outfitVisibility === "friends"}
               onClick={() => setOutfitVisibility("friends")}
             >
-              友達だけ
+              フォロワーだけ
             </Chip>
             <Chip
               selected={outfitVisibility === "public"}
@@ -1142,10 +1142,10 @@ export default function CreatePostPage() {
         {friends.length === 0 ? (
           <div className="mb-4 rounded-2xl border border-border bg-surface p-4">
             <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
-              まだ友達がいません。友達がいなくても投稿は保存でき、あとから自分で選べます。
+              まだ相互フォローの相手がいません。いなくても投稿は保存でき、あとから自分で選べます。
             </p>
             <Link href="/profile">
-              <SecondaryButton>友達を追加する</SecondaryButton>
+              <SecondaryButton>招待コードでつながる</SecondaryButton>
             </Link>
           </div>
         ) : (

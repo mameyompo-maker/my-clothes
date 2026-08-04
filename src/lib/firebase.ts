@@ -1,6 +1,12 @@
 import { initializeApp, getApps, getApp, type FirebaseOptions } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore,
+} from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig: FirebaseOptions = {
@@ -24,6 +30,26 @@ export const app = isFirebaseConfigured
   : null;
 
 export const auth = app ? getAuth(app) : null;
-export const db = app ? getFirestore(app) : null;
+
+/**
+ * Firestore は IndexedDB の永続キャッシュ付きで初期化する。
+ *
+ * 2回目以降の起動では、フィードやクローゼットの onSnapshot がまずキャッシュから
+ * 即座に返り、その後サーバーの最新で置き換わる。「開いてから動き出すまでが遅い」
+ * という体感の大部分は初回のネットワーク往復なので、これが一番効く。
+ * プライベートブラウズ等で IndexedDB が使えない環境ではメモリキャッシュに落とす。
+ */
+function createDb(): Firestore | null {
+  if (!app) return null;
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch {
+    return getFirestore(app);
+  }
+}
+
+export const db = createDb();
 export const storage = app ? getStorage(app) : null;
 export const googleAuthProvider = new GoogleAuthProvider();

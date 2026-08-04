@@ -134,7 +134,7 @@ export default function ProfilePage() {
       setFriendCode("");
       setAddState({ kind: "added", name: friendName });
     } catch (err) {
-      setAddState({ kind: "error", message: err instanceof Error ? err.message : "友達の追加に失敗しました。" });
+      setAddState({ kind: "error", message: err instanceof Error ? err.message : "追加に失敗しました。" });
     }
   }
 
@@ -166,6 +166,7 @@ export default function ProfilePage() {
 
   const bodyType = BODY_TYPES.find((b) => b.value === (profile.bodyType ?? "unknown"));
   const personalColor = PERSONAL_COLORS.find((p) => p.value === (profile.personalColor ?? "unknown"));
+  const personalColorSub = PERSONAL_COLORS.find((p) => p.value === (profile.personalColorSub ?? "unknown"));
   const favoriteGenres = (profile.favoriteGenres ?? [])
     .map((g) => STYLE_GENRES.find((x) => x.value === g)?.label)
     .filter(Boolean);
@@ -215,6 +216,7 @@ export default function ProfilePage() {
             {profile.height ? <Tag>{profile.height}cm</Tag> : null}
             {bodyType && bodyType.value !== "unknown" && <Tag>骨格{bodyType.label}</Tag>}
             {personalColor && personalColor.value !== "unknown" && <Tag>{personalColor.label}</Tag>}
+            {personalColorSub && personalColorSub.value !== "unknown" && <Tag>サブ {personalColorSub.label}</Tag>}
             {profile.sizeTops && <Tag>トップス {profile.sizeTops}</Tag>}
             {profile.sizeBottoms && <Tag>ボトムス {profile.sizeBottoms}</Tag>}
             {profile.sizeShoes && <Tag>靴 {profile.sizeShoes}</Tag>}
@@ -342,7 +344,7 @@ export default function ProfilePage() {
                 <Link key={p.id} href={`/post/${p.id}`} className="relative aspect-square bg-surface-muted">
                   <Image src={p.imageUrl} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
                   {p.visibility === "friends" && (
-                    <span className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[9px] text-white">友達</span>
+                    <span className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[9px] text-white">フォロワー</span>
                   )}
                 </Link>
               ))}
@@ -360,10 +362,10 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* 友達シート */}
-      <BottomSheet open={friendSheet} onClose={() => setFriendSheet(false)} title="友達">
+      {/* 相互フォローシート(旧: 友達シート)。招待コードでつながると相互フォローになる。 */}
+      <BottomSheet open={friendSheet} onClose={() => setFriendSheet(false)} title="相互フォロー">
         <form onSubmit={handleAddFriend} className="mb-5">
-          <Field label="友達の招待コードを入力して追加">
+          <Field label="招待コードを入力してつながる">
             <div className="flex gap-2">
               <input
                 value={friendCode}
@@ -388,7 +390,7 @@ export default function ProfilePage() {
           {addState.kind === "added" && (
             <p className="-mt-2 flex items-center gap-1 text-xs text-accent">
               <IconCheck className="h-3.5 w-3.5" />
-              {addState.name}さんを友達に追加しました
+              {addState.name}さんとつながりました(相互フォロー)
             </p>
           )}
           {addState.kind === "error" && <p className="-mt-2 text-xs text-danger">{addState.message}</p>}
@@ -396,7 +398,7 @@ export default function ProfilePage() {
 
         {friends.length === 0 ? (
           <p className="pb-6 text-sm text-muted-foreground">
-            まだ友達がいません。上のコードを教え合うと追加できます。
+            まだ相互フォローの相手がいません。上のコードを教え合うとつながれます。
           </p>
         ) : (
           <ul className="space-y-2 pb-6">

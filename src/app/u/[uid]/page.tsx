@@ -14,6 +14,7 @@ import {
   isFollowing,
   reportContent,
   listPublicStylePostsOf,
+  listUserStylePosts,
   unfollowUser,
 } from "@/lib/firestore";
 import {
@@ -72,13 +73,24 @@ export default function UserProfilePage() {
       const favs = await getStylePostsByIds(p.favoritePostIds ?? []);
       setFavorites(favs.filter((f) => f.visibility === "public"));
     });
-    listPublicStylePostsOf(uid).then(setPosts);
   }, [uid]);
 
   useEffect(() => {
     if (!user || isMe) return;
     isFollowing(user.uid, uid).then(setFollowing);
   }, [user, uid, isMe]);
+
+  // 投稿一覧。フォローしていれば「フォロワーだけ」の投稿も見える(ルールで許可済み)。
+  // フォローしていない/判定前は公開分だけ。ルールに弾かれた場合も公開分に落とす。
+  useEffect(() => {
+    if (following) {
+      listUserStylePosts(uid)
+        .then(setPosts)
+        .catch(() => listPublicStylePostsOf(uid).then(setPosts));
+    } else {
+      listPublicStylePostsOf(uid).then(setPosts);
+    }
+  }, [uid, following]);
 
   async function toggleFollow() {
     if (!user || following === null || busy) return;
@@ -128,6 +140,7 @@ export default function UserProfilePage() {
 
   const bodyType = BODY_TYPES.find((b) => b.value === (target?.bodyType ?? "unknown"));
   const personalColor = PERSONAL_COLORS.find((p) => p.value === (target?.personalColor ?? "unknown"));
+  const personalColorSub = PERSONAL_COLORS.find((p) => p.value === (target?.personalColorSub ?? "unknown"));
   const genres = (target?.favoriteGenres ?? [])
     .map((g) => STYLE_GENRES.find((x) => x.value === g)?.label)
     .filter(Boolean) as string[];
@@ -175,6 +188,7 @@ export default function UserProfilePage() {
                 {target.height ? <Tag>{target.height}cm</Tag> : null}
                 {bodyType && bodyType.value !== "unknown" && <Tag>骨格{bodyType.label}</Tag>}
                 {personalColor && personalColor.value !== "unknown" && <Tag>{personalColor.label}</Tag>}
+                {personalColorSub && personalColorSub.value !== "unknown" && <Tag>サブ {personalColorSub.label}</Tag>}
                 {genres.map((g) => (
                   <Tag key={g}>#{g}</Tag>
                 ))}
@@ -212,13 +226,16 @@ export default function UserProfilePage() {
                     </PrimaryButton>
                   )}
                 </div>
-                <button
-                  onClick={openChat}
-                  aria-label="メッセージを送る"
-                  className="tappable flex h-12 w-12 items-center justify-center rounded-full border border-border-strong bg-surface"
-                >
-                  <IconMessage className="h-5 w-5" />
-                </button>
+                {/* DMは相互フォローが成立している相手だけ(firestore.rules でも縛っている)。 */}
+                {Boolean(myProfile?.friendUids?.includes(uid)) && (
+                  <button
+                    onClick={openChat}
+                    aria-label="メッセージを送る"
+                    className="tappable flex h-12 w-12 items-center justify-center rounded-full border border-border-strong bg-surface"
+                  >
+                    <IconMessage className="h-5 w-5" />
+                  </button>
+                )}
               </div>
 
               {/* 安全のための導線。目立たせないが、探せば必ず見つかる位置に置く。 */}
@@ -235,7 +252,7 @@ export default function UserProfilePage() {
 
             <div className="border-t border-border">
               <div className="flex items-center justify-center gap-2 py-3 text-xs font-bold">
-                <IconGrid className="h-4 w-4" /> 公開中の投稿
+                <IconGrid className="h-4 w-4" /> {following ? "投稿" : "公開中の投稿"}
               </div>
 
               {/* ブロック関係がある相手の投稿は出さない。どちら向きのブロックかは明かさない
@@ -263,6 +280,11 @@ export default function UserProfilePage() {
                   {posts.map((p) => (
                     <Link key={p.id} href={`/post/${p.id}`} className="relative aspect-square bg-surface-muted">
                       <Image src={p.imageUrl} alt={p.caption || "投稿"} fill className="object-cover" unoptimized />
+                      {p.visibility === "friends" && (
+                        <span className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[9px] text-white">
+                          フォロワー
+                        </span>
+                      )}
                     </Link>
                   ))}
                 </div>

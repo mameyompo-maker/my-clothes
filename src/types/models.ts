@@ -121,6 +121,12 @@ export interface UserProfile {
   height?: number | null;
   bodyType?: BodyType;
   personalColor?: PersonalColor;
+  /**
+   * サブのパーソナルカラー(2nd シーズン)。診断で「イエベ春×ブルベ夏」のように
+   * 2つ出る人がいるため、メイン(personalColor)+サブの最大2つまで持てる。
+   * "unknown" と undefined は「サブなし」。
+   */
+  personalColorSub?: PersonalColor;
   sizeTops?: string;
   sizeBottoms?: string;
   sizeShoes?: string;

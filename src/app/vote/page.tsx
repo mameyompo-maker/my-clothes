@@ -9,7 +9,9 @@ import {
   hasVotedOn,
   listClosetItems,
   listFacePatterns,
+  listFollowingUids,
   watchFeedPosts,
+  watchFollowedOutfitPosts,
   watchMyPosts,
   watchPublicOutfitPosts,
 } from "@/lib/firestore";
@@ -45,13 +47,14 @@ export default function VoteListPage() {
       setMyPosts(posts.filter((p) => p.expiresAt > Date.now()));
       setLoading(false);
     });
-    // 友達向けと公開の2本を別々に購読して混ぜる。Firestore は OR 条件を
-    // 1クエリで書けないため。重複は id で潰す。
+    // 「共有された2択」「公開の2択」「フォロー中の人の2択」の3本を別々に購読して混ぜる。
+    // Firestore は OR 条件を1クエリで書けないため。重複は id で潰す。
     let fromFriends: OutfitPost[] = [];
     let fromPublic: OutfitPost[] = [];
+    let fromFollowed: OutfitPost[] = [];
     const merge = () => {
       const seen = new Set<string>();
-      const merged = [...fromFriends, ...fromPublic].filter((p) => {
+      const merged = [...fromFriends, ...fromPublic, ...fromFollowed].filter((p) => {
         if (seen.has(p.id) || hiddenUids.has(p.ownerUid)) return false;
         seen.add(p.id);
         return true;
@@ -66,12 +69,24 @@ export default function VoteListPage() {
       fromPublic = list;
       merge();
     });
+    // フォロー一覧は1回引けば十分(フォロー直後の反映は次に開いたときでよい)。
+    let unsubFollowed: (() => void) | null = null;
+    let cancelled = false;
+    listFollowingUids(user.uid).then((uids) => {
+      if (cancelled || uids.length === 0) return;
+      unsubFollowed = watchFollowedOutfitPosts(user.uid, uids, (list) => {
+        fromFollowed = list;
+        merge();
+      });
+    });
     listClosetItems(user.uid).then(setMyItems);
     listFacePatterns(user.uid).then(setMyFaces);
     return () => {
+      cancelled = true;
       unsubMine();
       unsubFeed();
       unsubPublic();
+      unsubFollowed?.();
     };
   }, [user, hiddenUids]);
 
@@ -138,7 +153,7 @@ export default function VoteListPage() {
           <EmptyState
             icon={<IconVote className="h-10 w-10" />}
             title="まだ2択がありません"
-            description="クローゼットから2パターン組んで、友達に選んでもらいましょう。友達がいなくても保存できます。"
+            description="クローゼットから2パターン組んで、みんなに選んでもらいましょう。フォロワーがいなくても保存できます。"
             action={
               <Link href="/create">
                 <PrimaryButton full={false}>コーデを作る</PrimaryButton>
@@ -149,7 +164,7 @@ export default function VoteListPage() {
           <div className="space-y-8">
             {friendPosts.length > 0 && (
               <section>
-                <h2 className="mb-3 text-sm font-bold">友達が迷っています</h2>
+                <h2 className="mb-3 text-sm font-bold">みんなの2択</h2>
                 <div className="space-y-4">
                   {orderedFriendPosts.map((post) => (
                     <PostSummaryCard
@@ -214,9 +229,9 @@ function PostSummaryCard({
       className="tappable block overflow-hidden rounded-3xl border border-border bg-surface shadow-[var(--shadow-card)]"
     >
       <div className="flex items-center gap-2.5 px-3.5 py-3">
-        <Avatar src={owner?.avatarUrl} name={owner?.name ?? "友達"} size={34} ring={!isMine} />
+        <Avatar src={owner?.avatarUrl} name={owner?.name ?? "ユーザー"} size={34} ring={!isMine} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold">{isMine ? "あなた" : (owner?.name ?? "友達")}</p>
+          <p className="truncate text-sm font-bold">{isMine ? "あなた" : (owner?.name ?? "ユーザー")}</p>
           <p className="truncate text-xs text-muted-foreground">{post.mood || "今日のコーデ"}</p>
         </div>
         {!isMine && voted && (

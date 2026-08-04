@@ -208,7 +208,7 @@ export default function VoteDetailPage() {
   return (
     <>
       <TopBar
-        title={isOwner ? "あなたの2択" : `${owner?.name ?? "友達"}の2択`}
+        title={isOwner ? "あなたの2択" : `${owner?.name ?? "ユーザー"}の2択`}
         left={
           <IconButton label="戻る" onClick={() => router.back()}>
             <IconChevronLeft className="h-5 w-5" />
@@ -234,11 +234,11 @@ export default function VoteDetailPage() {
 
       <div className="mx-auto max-w-lg px-4 pb-40 pt-4">
         <div className="mb-4 flex items-center gap-2.5">
-          <Avatar src={owner?.avatarUrl} name={owner?.name ?? "友達"} size={38} ring={!isOwner} />
+          <Avatar src={owner?.avatarUrl} name={owner?.name ?? "ユーザー"} size={38} ring={!isOwner} />
           <div className="min-w-0">
-            <p className="text-sm font-bold">{isOwner ? "あなた" : (owner?.name ?? "友達")}</p>
+            <p className="text-sm font-bold">{isOwner ? "あなた" : (owner?.name ?? "ユーザー")}</p>
             <p className="text-xs text-muted-foreground">
-              {expired ? "投票は終了しました" : isOwner ? "友達の投票を待っています" : "どっちがいいと思う?"}
+              {expired ? "投票は終了しました" : isOwner ? "みんなの投票を待っています" : "どっちがいいと思う?"}
             </p>
           </div>
         </div>
@@ -368,7 +368,7 @@ export default function VoteDetailPage() {
 
         {isOwner && decided === null && (
           <p className="text-center text-xs text-muted-foreground">
-            自分の投稿には投票できません。友達の票を見て「こっちを着る」を選んでください。
+            自分の投稿には投票できません。みんなの票を見て「こっちを着る」を選んでください。
           </p>
         )}
 

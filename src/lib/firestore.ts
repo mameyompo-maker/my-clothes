@@ -6,6 +6,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocFromCache,
   getDocs,
   increment,
   limit,
@@ -149,6 +150,21 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   return snap.exists() ? (snap.data() as UserProfile) : null;
 }
 
+/**
+ * ローカルキャッシュにあるプロフィールだけを読む(ネットワークに出ない)。
+ * 起動時に「まずキャッシュで描画 → サーバー確定値で置き換え」をするためのもので、
+ * キャッシュに無ければ null を返すだけ。サーバー読みは呼び出し側が別途行う。
+ */
+export async function getUserProfileFromCache(uid: string): Promise<UserProfile | null> {
+  const database = requireDb();
+  try {
+    const snap = await getDocFromCache(doc(database, "users", uid));
+    return snap.exists() ? (snap.data() as UserProfile) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getFriendProfiles(friendUids: string[]): Promise<UserProfile[]> {
   if (friendUids.length === 0) return [];
   const profiles = await Promise.all(friendUids.map((uid) => getUserProfile(uid)));
@@ -163,6 +179,7 @@ export type ProfileEditableFields = Pick<
   | "height"
   | "bodyType"
   | "personalColor"
+  | "personalColorSub"
   | "sizeTops"
   | "sizeBottoms"
   | "sizeShoes"
@@ -246,7 +263,7 @@ export async function redeemInviteCode(myUid: string, rawCode: string): Promise<
 
   await becomeFriends(myUid, friendUid);
 
-  return { friendUid, friendName: (friendDoc.data() as UserProfile).name ?? "友達" };
+  return { friendUid, friendName: (friendDoc.data() as UserProfile).name ?? "ユーザー" };
 }
 
 
@@ -387,9 +404,13 @@ export async function suggestUsersToFollow(
         score += 5;
         reasons.push(`骨格${BODY_TYPES.find((b) => b.value === u.bodyType)?.label ?? ""}が同じ`);
       }
-      if (me.personalColor && me.personalColor !== "unknown" && u.personalColor === me.personalColor) {
+      // パーソナルカラーはメイン+サブの最大2つ持てる。どれか1つでも重なれば「近い」。
+      const myColors = [me.personalColor, me.personalColorSub].filter((c) => c && c !== "unknown");
+      const theirColors = [u.personalColor, u.personalColorSub].filter((c) => c && c !== "unknown");
+      const sharedColor = myColors.find((c) => theirColors.includes(c));
+      if (sharedColor) {
         score += 4;
-        reasons.push(PERSONAL_COLORS.find((c) => c.value === u.personalColor)?.label ?? "");
+        reasons.push(PERSONAL_COLORS.find((c) => c.value === sharedColor)?.label ?? "");
       }
       const sharedGenres = (u.favoriteGenres ?? []).filter((g) => (me.favoriteGenres ?? []).includes(g));
       if (sharedGenres.length > 0) {
@@ -825,6 +846,51 @@ export function watchPublicOutfitPosts(
   });
 }
 
+/**
+ * フォロー中の人の2択を購読する(公開範囲を問わない。ルール側で
+ * 「フォローしていれば読める」ようにしてある)。
+ *
+ * Firestore は「ownerUid が配列のどれか」を1クエリで安全に書けない
+ * (`in` はルールの exists() 判定と相性が悪い)ため、フォロー相手1人につき
+ * 1本のクエリを張る。人数が増えたときの上限として先頭30人まで。
+ * ルールで弾かれた相手のクエリは黙って捨てる(公開分は別購読で拾える)。
+ */
+export function watchFollowedOutfitPosts(
+  myUid: string,
+  followingUids: string[],
+  onChange: (posts: OutfitPost[]) => void
+): Unsubscribe {
+  const database = requireDb();
+  const perOwner = new Map<string, OutfitPost[]>();
+  const emit = () => {
+    const now = Date.now();
+    onChange(
+      Array.from(perOwner.values())
+        .flat()
+        .filter((p) => p.expiresAt > now && !p.deletedAt && p.ownerUid !== myUid)
+        .sort((a, b) => b.createdAt - a.createdAt)
+    );
+  };
+  const unsubs = followingUids
+    .filter((uid) => uid !== myUid)
+    .slice(0, 30)
+    .map((uid) =>
+      onSnapshot(
+        query(collection(database, "outfitPosts"), where("ownerUid", "==", uid), limit(10)),
+        (snap) => {
+          perOwner.set(uid, snap.docs.map((d) => d.data() as OutfitPost));
+          emit();
+        },
+        () => {
+          // 権限エラー等はこの相手だけ諦める。
+          perOwner.delete(uid);
+          emit();
+        }
+      )
+    );
+  return () => unsubs.forEach((u) => u());
+}
+
 export function watchMyPosts(myUid: string, onChange: (posts: OutfitPost[]) => void): Unsubscribe {
   const database = requireDb();
   const q = query(collection(database, "outfitPosts"), where("ownerUid", "==", myUid), orderBy("createdAt", "desc"));
@@ -1059,6 +1125,48 @@ export function watchPublicStylePosts(onChange: (posts: StylePost[]) => void): U
     limit(100)
   );
   return onSnapshot(q, (snap) => onChange(snap.docs.map((d) => d.data() as StylePost)));
+}
+
+/**
+ * フォロー中の人の「フォロワーだけ」投稿を購読する。公開分は
+ * `watchPublicStylePosts` が拾うので、こちらは visibility == 'friends' に絞る。
+ * フォロー相手1人につき1クエリ(watchFollowedOutfitPosts と同じ事情)。
+ */
+export function watchFollowedStylePosts(
+  myUid: string,
+  followingUids: string[],
+  onChange: (posts: StylePost[]) => void
+): Unsubscribe {
+  const database = requireDb();
+  const perOwner = new Map<string, StylePost[]>();
+  const emit = () =>
+    onChange(
+      Array.from(perOwner.values())
+        .flat()
+        .sort((a, b) => b.createdAt - a.createdAt)
+    );
+  const unsubs = followingUids
+    .filter((uid) => uid !== myUid)
+    .slice(0, 30)
+    .map((uid) =>
+      onSnapshot(
+        query(
+          collection(database, "stylePosts"),
+          where("ownerUid", "==", uid),
+          where("visibility", "==", "friends"),
+          limit(20)
+        ),
+        (snap) => {
+          perOwner.set(uid, snap.docs.map((d) => d.data() as StylePost));
+          emit();
+        },
+        () => {
+          perOwner.delete(uid);
+          emit();
+        }
+      )
+    );
+  return () => unsubs.forEach((u) => u());
 }
 
 /**

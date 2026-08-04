@@ -30,6 +30,7 @@ export default function EditProfilePage() {
   // 主に使う服。2択を作るとき、既定ではこちらの見本だけを出す。
   const [primaryWardrobe, setPrimaryWardrobe] = useState<Wardrobe>(profile?.primaryWardrobe ?? "women");
   const [personalColor, setPersonalColor] = useState<PersonalColor>(profile?.personalColor ?? "unknown");
+  const [personalColorSub, setPersonalColorSub] = useState<PersonalColor>(profile?.personalColorSub ?? "unknown");
   const [sizeTops, setSizeTops] = useState(profile?.sizeTops ?? "");
   const [sizeBottoms, setSizeBottoms] = useState(profile?.sizeBottoms ?? "");
   const [sizeShoes, setSizeShoes] = useState(profile?.sizeShoes ?? "");
@@ -80,6 +81,8 @@ export default function EditProfilePage() {
         height: height.trim() ? Number(height) : null,
         bodyType,
         personalColor,
+        // メインと同じ色をサブに残さない(2つまで、の意味が崩れるため)。
+        personalColorSub: personalColorSub === personalColor ? "unknown" : personalColorSub,
         sizeTops: sizeTops.trim(),
         sizeBottoms: sizeBottoms.trim(),
         sizeShoes: sizeShoes.trim(),
@@ -212,16 +215,38 @@ export default function EditProfilePage() {
           </div>
         </Field>
 
-        <Field label="パーソナルカラー">
+        <Field label="パーソナルカラー(メイン)">
           <div className="flex flex-wrap gap-2">
             {PERSONAL_COLORS.map((p) => (
               <Chip
                 key={p.value}
                 size="sm"
                 selected={personalColor === p.value}
-                onClick={() => setPersonalColor(p.value)}
+                onClick={() => {
+                  setPersonalColor(p.value);
+                  // メインに選んだ色がサブに残っていたら外す。
+                  if (personalColorSub === p.value) setPersonalColorSub("unknown");
+                }}
               >
                 {p.label}
+              </Chip>
+            ))}
+          </div>
+        </Field>
+
+        <Field
+          label="パーソナルカラー(サブ・任意)"
+          hint="診断で2ndシーズンまで出た人向け。メインと合わせて2つまで選べます。"
+        >
+          <div className="flex flex-wrap gap-2">
+            {PERSONAL_COLORS.filter((p) => p.value !== personalColor || p.value === "unknown").map((p) => (
+              <Chip
+                key={p.value}
+                size="sm"
+                selected={personalColorSub === p.value}
+                onClick={() => setPersonalColorSub(p.value)}
+              >
+                {p.value === "unknown" ? "なし" : p.label}
               </Chip>
             ))}
           </div>
