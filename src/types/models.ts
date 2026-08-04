@@ -158,6 +158,17 @@ export interface UserProfile {
    * date が今日でなければ数え直す。同じ投稿をもう一度見るのは消費しない。
    */
   priceViews?: { date: string; postIds: string[] };
+  /**
+   * 友達のグループ(「仲良し」「サークル」など)。2択の共有相手をワンタップで
+   * 選ぶための、本人専用のプリセット。人数が少ない前提なので配列で持つ。
+   */
+  friendGroups?: FriendGroup[];
+}
+
+export interface FriendGroup {
+  id: string;
+  name: string;
+  memberUids: string[];
 }
 
 export type PlanTier = "free" | "premium";
@@ -225,6 +236,34 @@ export interface ClosetItem {
    * よく着る服ほど早く手に取れるようにして、選ぶ時間を削るための印。
    */
   favorite?: boolean;
+  /**
+   * この服が合う骨格タイプ(自分の感覚でよい。複数可)。
+   * 2択で「投稿主の骨格に合う服」が分かると見る側も選びやすく、
+   * おまかせ提案でも本人の骨格に合う服を少し優先する。
+   */
+  bodyTypes?: BodyType[];
+}
+
+/**
+ * 保存したコーデ(名前付きの服の組み合わせ)。`savedOutfits/{id}`。
+ *
+ * 2択で「着る」と確定した組み合わせを保存しておき、次からはパッと呼び出して
+ * 候補にできる。毎朝ゼロから組み直さないための仕組みで、時短の中核。
+ * 本人だけが読み書きする(他人に見せる必要が出たら公開設定を足す)。
+ */
+export interface SavedOutfit {
+  id: string;
+  ownerUid: string;
+  name: string;
+  itemIds: string[];
+  createdAt: number;
+  /** この組み合わせを最後に着た日。コーデ被りの注意表示に使う。 */
+  lastWornAt?: number | null;
+}
+
+/** アイテムIDの組み合わせを順序に依らず比較するための署名。コーデ被り判定に使う。 */
+export function outfitSignature(itemIds: string[]): string {
+  return [...itemIds].sort().join(",");
 }
 
 /** 値段の表示形式。「¥12,800」。 */
@@ -339,6 +378,12 @@ export interface OutfitCandidate {
   liveCaptureUrl: string | null;
   composedImageUrl: string | null;
   composeStatus: "pending" | "ready" | "failed";
+  /**
+   * その場で撮った全身写真で比べる候補(2026-08-04 追加)。
+   * これが入っている場合は服の組み合わせではなく写真そのものを見せる
+   * (itemIds は空でもよい)。AI合成はしない。
+   */
+  photoUrl?: string | null;
 }
 
 export interface OutfitPost {
@@ -472,6 +517,11 @@ export interface StylePost {
    * タグ付けした服のタグ + キャプション中の #タグ + 本人が手で足したタグ の合流。
    */
   hashtags?: string[];
+  /**
+   * 投稿した日の最高気温(℃)。天気に同意している人の投稿にだけ入る。
+   * 「今日の気温に近い日のコーデ」フィルタに使う。編集不可(ルールの許可キー外)。
+   */
+  tempC?: number | null;
 }
 
 export interface PostLike {

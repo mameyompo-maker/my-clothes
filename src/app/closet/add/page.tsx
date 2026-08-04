@@ -7,13 +7,16 @@ import { useAuth } from "@/components/AuthProvider";
 import { addClosetItem } from "@/lib/firestore";
 import { compressImage } from "@/lib/image";
 import {
+  BODY_TYPES,
   CLOSET_CATEGORIES,
   parsePrice,
   SEASONS,
   STYLE_GENRES,
+  type BodyType,
   type ClosetCategory,
   type Season,
   type StyleGenre,
+  type Wardrobe,
 } from "@/types/models";
 import { ActionBar, Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
 import { IconCamera, IconChevronLeft } from "@/components/icons";
@@ -35,6 +38,8 @@ export default function AddClosetItemPage() {
   const [memo, setMemo] = useState("");
   const [price, setPrice] = useState("");
   const [pricePublic, setPricePublic] = useState(false);
+  const [wardrobe, setWardrobe] = useState<Wardrobe | null>(null);
+  const [bodyTypes, setBodyTypes] = useState<BodyType[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -72,6 +77,8 @@ export default function AddClosetItemPage() {
           memo: memo.trim(),
           price: parsePrice(price),
           pricePublic,
+          wardrobe,
+          bodyTypes,
         },
         compressed
       );
@@ -166,6 +173,36 @@ export default function AddClosetItemPage() {
             {SEASONS.map((s) => (
               <Chip key={s.value} size="sm" selected={seasons.includes(s.value)} onClick={() => toggleSeason(s.value)}>
                 {s.emoji} {s.label}
+              </Chip>
+            ))}
+          </div>
+        </Field>
+
+        <Field label="メンズ / レディース" hint="「主に使う服」の設定に合わせて出し分けに使います。指定なしなら常に表示。">
+          <div className="flex flex-wrap gap-2">
+            <Chip size="sm" selected={wardrobe === "women"} onClick={() => setWardrobe(wardrobe === "women" ? null : "women")}>
+              レディース
+            </Chip>
+            <Chip size="sm" selected={wardrobe === "men"} onClick={() => setWardrobe(wardrobe === "men" ? null : "men")}>
+              メンズ
+            </Chip>
+          </div>
+        </Field>
+
+        <Field label="合う骨格タイプ(任意)" hint="自分の感覚でOK。2択を見る人に「骨格に合う服」の印が出ます。">
+          <div className="flex flex-wrap gap-2">
+            {BODY_TYPES.filter((b) => b.value !== "unknown").map((b) => (
+              <Chip
+                key={b.value}
+                size="sm"
+                selected={bodyTypes.includes(b.value)}
+                onClick={() =>
+                  setBodyTypes((prev) =>
+                    prev.includes(b.value) ? prev.filter((v) => v !== b.value) : [...prev, b.value]
+                  )
+                }
+              >
+                {b.label}
               </Chip>
             ))}
           </div>

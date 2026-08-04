@@ -7,9 +7,12 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   addSeedClosetItems,
   deleteClosetItem,
+  deleteSavedOutfit,
   listClosetItems,
+  listSavedOutfits,
   replaceSeedClosetItems,
   updateClosetItem,
+  updateSavedOutfit,
   updateUserProfile,
 } from "@/lib/firestore";
 import { seedItemsFor, WARDROBE_STYLES, type WardrobeStyle } from "@/data/seedClosetItems";
@@ -20,10 +23,15 @@ import {
   SEASONS,
   STYLE_GENRES,
   seasonOfMonth,
+  BODY_TYPES,
+  WARDROBE_LABELS,
+  type BodyType,
   type ClosetCategory,
   type ClosetItem,
+  type SavedOutfit,
   type Season,
   type StyleGenre,
+  type Wardrobe,
 } from "@/types/models";
 import { ClosetCardGrid, WardrobeCarousel } from "@/components/WardrobeCloset";
 import { downloadJson } from "@/lib/share";
@@ -39,6 +47,7 @@ import {
   Skeleton,
   TopBar,
   inputClass,
+  timeAgo,
 } from "@/components/ui";
 import { IconCloset, IconPlus, IconTrash } from "@/components/icons";
 
@@ -69,6 +78,11 @@ export default function ClosetPage() {
   const [sort, setSort] = useState<SortKey>("recent");
   // ワードローブの中央に掛けるアイテム。未選択なら一覧の先頭。
   const [featuredId, setFeaturedId] = useState<string | null>(null);
+  // 「アイテム / コーデ」の表示切り替え。コーデ=保存した服の組み合わせ。
+  const [view, setView] = useState<"items" | "outfits">("items");
+  const [savedOutfits, setSavedOutfits] = useState<SavedOutfit[] | null>(null);
+  const [editingOutfit, setEditingOutfit] = useState<SavedOutfit | null>(null);
+  const [outfitName, setOutfitName] = useState("");
   const [ioNote, setIoNote] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -82,6 +96,7 @@ export default function ClosetPage() {
       setItems(list);
       setDormantCount(countDormant(list));
     });
+    listSavedOutfits(user.uid).then(setSavedOutfits);
   }, [user]);
 
   const filtered = useMemo(() => {
@@ -251,6 +266,65 @@ export default function ClosetPage() {
       />
 
       <div className="mx-auto max-w-lg px-4 pb-28 pt-4">
+        {/* アイテム(1着ずつ)とコーデ(保存した組み合わせ)の切り替え。 */}
+        <div className="mb-3 flex gap-2">
+          <Chip selected={view === "items"} onClick={() => setView("items")}>
+            アイテム{items ? ` (${items.length})` : ""}
+          </Chip>
+          <Chip selected={view === "outfits"} onClick={() => setView("outfits")}>
+            コーデ{savedOutfits ? ` (${savedOutfits.length})` : ""}
+          </Chip>
+        </div>
+
+        {view === "outfits" ? (
+          savedOutfits === null ? (
+            <div className="space-y-3">
+              <Skeleton className="h-24" />
+              <Skeleton className="h-24" />
+            </div>
+          ) : savedOutfits.length === 0 ? (
+            <EmptyState
+              title="保存したコーデはまだありません"
+              description="2択で「着る」と決めたあとに「コーデとして保存」すると、ここに並びます。保存したコーデは、次の2択を作るとき「まえのコーデ」からワンタップで呼び出せます。"
+            />
+          ) : (
+            <div className="space-y-3">
+              {savedOutfits.map((o) => {
+                const oItems = o.itemIds
+                  .map((id) => (items ?? []).find((i) => i.id === id))
+                  .filter((i): i is ClosetItem => Boolean(i));
+                return (
+                  <div key={o.id} className="flex items-center gap-3 rounded-3xl border border-border bg-surface p-3">
+                    <div className="grid w-24 shrink-0 grid-cols-2 gap-0.5">
+                      {oItems.slice(0, 4).map((item) => (
+                        <span key={item.id} className="relative block aspect-square overflow-hidden rounded-md bg-surface-muted">
+                          <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
+                        </span>
+                      ))}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold">{o.name}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {oItems.length}アイテム
+                        {o.lastWornAt ? ` ・ 最後に着たのは${timeAgo(o.lastWornAt)}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditingOutfit(o);
+                        setOutfitName(o.name);
+                      }}
+                      className="tappable shrink-0 text-xs font-bold text-accent"
+                    >
+                      編集
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ) : (
+          <>
         {hasBrokenSeed && user && (
           <div className="mb-5 rounded-3xl border border-accent/30 bg-accent-soft p-4">
             <p className="text-sm font-bold text-accent">初期クローゼットの写真を入れ替えられます</p>
@@ -420,7 +494,40 @@ export default function ClosetPage() {
             />
           </>
         )}
+          </>
+        )}
       </div>
+
+      <BottomSheet open={Boolean(editingOutfit)} onClose={() => setEditingOutfit(null)} title="コーデの編集">
+        {editingOutfit && (
+          <div className="pb-4">
+            <Field label="コーデの名前">
+              <input value={outfitName} onChange={(e) => setOutfitName(e.target.value)} maxLength={30} className={inputClass} />
+            </Field>
+            <div className="mb-3">
+              <PrimaryButton
+                onClick={async () => {
+                  const name = outfitName.trim() || editingOutfit.name;
+                  await updateSavedOutfit(editingOutfit.id, { name });
+                  setSavedOutfits((prev) => (prev ?? []).map((o) => (o.id === editingOutfit.id ? { ...o, name } : o)));
+                  setEditingOutfit(null);
+                }}
+              >
+                保存する
+              </PrimaryButton>
+            </div>
+            <SecondaryButton
+              onClick={async () => {
+                await deleteSavedOutfit(editingOutfit.id);
+                setSavedOutfits((prev) => (prev ?? []).filter((o) => o.id !== editingOutfit.id));
+                setEditingOutfit(null);
+              }}
+            >
+              このコーデを削除(服そのものは残ります)
+            </SecondaryButton>
+          </div>
+        )}
+      </BottomSheet>
 
       <BottomSheet open={Boolean(editing)} onClose={() => setEditing(null)} title="アイテムの情報">
         {editing && <EditItemForm item={editing} onSave={handleSaveEdit} onDelete={handleDelete} />}
@@ -525,6 +632,8 @@ function EditItemForm({
   const [color, setColor] = useState(item.color ?? "");
   const [price, setPrice] = useState(typeof item.price === "number" ? String(item.price) : "");
   const [pricePublic, setPricePublic] = useState(item.pricePublic ?? false);
+  const [wardrobe, setWardrobe] = useState<Wardrobe | null>(item.wardrobe ?? null);
+  const [bodyTypes, setBodyTypes] = useState<BodyType[]>(item.bodyTypes ?? []);
   const [genres, setGenres] = useState<StyleGenre[]>(item.genres ?? []);
   const [seasons, setSeasons] = useState<Season[]>(item.seasons ?? []);
   const [category, setCategory] = useState<ClosetCategory>(item.category);
@@ -626,6 +735,35 @@ function EditItemForm({
         </div>
       </Field>
 
+      <Field label="メンズ / レディース" hint="指定なしなら常に表示されます。">
+        <div className="flex flex-wrap gap-2">
+          {(["women", "men"] as Wardrobe[]).map((w) => (
+            <Chip key={w} size="sm" selected={wardrobe === w} onClick={() => setWardrobe(wardrobe === w ? null : w)}>
+              {WARDROBE_LABELS[w]}
+            </Chip>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="合う骨格タイプ(任意)" hint="自分の感覚でOK。2択を見る人に「骨格に合う服」の印が出ます。">
+        <div className="flex flex-wrap gap-2">
+          {BODY_TYPES.filter((b) => b.value !== "unknown").map((b) => (
+            <Chip
+              key={b.value}
+              size="sm"
+              selected={bodyTypes.includes(b.value)}
+              onClick={() =>
+                setBodyTypes((prev) =>
+                  prev.includes(b.value) ? prev.filter((v) => v !== b.value) : [...prev, b.value]
+                )
+              }
+            >
+              {b.label}
+            </Chip>
+          ))}
+        </div>
+      </Field>
+
       {(item.wearCount ?? 0) > 0 && (
         <p className="mb-4 text-xs text-muted-foreground">これまで{item.wearCount}回着ています。</p>
       )}
@@ -646,6 +784,8 @@ function EditItemForm({
               hashtags: parseHashtags(tagsText),
               price: parsePrice(price),
               pricePublic,
+              wardrobe,
+              bodyTypes,
             });
             setSaving(false);
           }}

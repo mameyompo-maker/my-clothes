@@ -6,19 +6,23 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
   addOutfitComment,
+  addSavedOutfit,
   castVote,
   decideOutfitCandidate,
   getUserProfile,
   listClosetItems,
   listFacePatterns,
+  listSavedOutfits,
   markItemsWorn,
   setVoteReason,
   tallyVotes,
+  updateSavedOutfit,
   watchOutfitComments,
   watchOutfitPost,
   watchVotes,
 } from "@/lib/firestore";
 import {
+  outfitSignature,
   VOTE_REASONS,
   type ClosetItem,
   type FacePattern,
@@ -58,6 +62,8 @@ export default function VoteDetailPage() {
   const [sendingComment, setSendingComment] = useState(false);
   const [busy, setBusy] = useState(false);
   const [shareNote, setShareNote] = useState("");
+  // 決めたコーデを保存済みか(既に同じ組み合わせが保存されている場合も true)。
+  const [outfitSaved, setOutfitSaved] = useState(false);
   // 締め切り判定に使う現在時刻。描画中に Date.now() を読むと結果が安定しないので、
   // タイマー経由で state に落としてから使う。初期値0の間は「まだ締め切っていない」扱い。
   const [now, setNow] = useState(0);
@@ -124,12 +130,43 @@ export default function VoteDetailPage() {
   }
 
   async function handleDecide(index: number) {
-    if (!isOwner || !post) return;
+    if (!isOwner || !post || !user) return;
     setBusy(true);
     try {
       await decideOutfitCandidate(postId, index);
-      await markItemsWorn(post.candidates[index]?.itemIds ?? []);
+      const itemIds = post.candidates[index]?.itemIds ?? [];
+      await markItemsWorn(itemIds);
       setPost({ ...post, decidedCandidateIndex: index });
+
+      // 同じ組み合わせを保存コーデとして持っていたら、最終着用日を今日にしておく。
+      // 「まえのコーデ」一覧の被り警告(◯日前に着た)を正しく保つため。投げっぱなしでよい。
+      if (itemIds.length > 0) {
+        void (async () => {
+          const saved = await listSavedOutfits(user.uid);
+          const sig = outfitSignature(itemIds);
+          const match = saved.find((s) => outfitSignature(s.itemIds) === sig);
+          if (match) await updateSavedOutfit(match.id, { lastWornAt: Date.now() });
+        })().catch(() => {});
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 決めたコーデに名前を付けて保存する。次からは「まえのコーデ」からパッと呼び出せる。 */
+  async function handleSaveOutfit() {
+    if (!user || !post || decided === null) return;
+    const itemIds = post.candidates[decided]?.itemIds ?? [];
+    if (itemIds.length === 0) return;
+    setBusy(true);
+    try {
+      const saved = await listSavedOutfits(user.uid);
+      const sig = outfitSignature(itemIds);
+      if (!saved.some((s) => outfitSignature(s.itemIds) === sig)) {
+        const d = new Date();
+        await addSavedOutfit(user.uid, `${d.getMonth() + 1}/${d.getDate()}のコーデ`, itemIds, Date.now());
+      }
+      setOutfitSaved(true);
     } finally {
       setBusy(false);
     }
@@ -256,7 +293,7 @@ export default function VoteDetailPage() {
                   )}
                 </button>
 
-                <OutfitItemChips candidate={candidate} items={items} />
+                <OutfitItemChips candidate={candidate} items={items} ownerBodyType={owner?.bodyType ?? null} />
 
                 {/* 投票理由スタンプの集計。「なぜこっちが人気か」が分かると決めるのが速くなる。 */}
                 {revealTally && reasonSummary(index).length > 0 && (
@@ -316,6 +353,16 @@ export default function VoteDetailPage() {
                 </span>
               </PrimaryButton>
             </Link>
+            {(post.candidates[decided]?.itemIds.length ?? 0) > 0 && (
+              <div className="mt-2">
+                <SecondaryButton onClick={handleSaveOutfit} disabled={busy || outfitSaved}>
+                  {outfitSaved ? "コーデに保存しました ✓" : "この組み合わせをコーデとして保存"}
+                </SecondaryButton>
+                <p className="mt-1.5 text-center text-[10px] leading-relaxed text-muted-foreground">
+                  保存すると、次からコーデ作成の「まえのコーデ」からワンタップで呼び出せます
+                </p>
+              </div>
+            )}
           </div>
         )}
 

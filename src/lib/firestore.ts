@@ -36,6 +36,7 @@ import {
   PERSONAL_COLORS,
   STYLE_GENRES,
   type ClosetCategory,
+  type BodyType,
   type Wardrobe,
   type ClosetItem,
   type FacePattern,
@@ -45,6 +46,7 @@ import {
   type OutfitPost,
   type PostComment,
   type PostVisibility,
+  type SavedOutfit,
   type Season,
   type StyleGenre,
   type StylePost,
@@ -171,6 +173,7 @@ export type ProfileEditableFields = Pick<
   | "primaryWardrobe"
   | "lastReadNotificationAt"
   | "priceViews"
+  | "friendGroups"
 >;
 
 export async function updateUserProfile(uid: string, patch: Partial<ProfileEditableFields>): Promise<void> {
@@ -522,6 +525,10 @@ export interface ClosetItemInput {
   price?: number | null;
   /** 値段を他の人にも見せるか。既定は false。 */
   pricePublic?: boolean;
+  /** メンズ/レディース。未指定(null)は常に表示される。 */
+  wardrobe?: Wardrobe | null;
+  /** この服が合う骨格タイプ(自分の感覚でよい)。 */
+  bodyTypes?: BodyType[];
 }
 
 export async function addClosetItem(ownerUid: string, input: ClosetItemInput, file: Blob): Promise<ClosetItem> {
@@ -546,9 +553,47 @@ export async function addClosetItem(ownerUid: string, input: ClosetItemInput, fi
     lastWornAt: null,
     price: input.price ?? null,
     pricePublic: input.pricePublic ?? false,
+    wardrobe: input.wardrobe ?? null,
+    bodyTypes: input.bodyTypes ?? [],
   };
   await setDoc(doc(database, "closetItems", id), item);
   return item;
+}
+
+// ---------- Saved outfits (保存したコーデ) ----------
+
+/** 自分の保存コーデ一覧(新しい順)。 */
+export async function listSavedOutfits(ownerUid: string): Promise<SavedOutfit[]> {
+  const database = requireDb();
+  const q = query(collection(database, "savedOutfits"), where("ownerUid", "==", ownerUid));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => d.data() as SavedOutfit).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function addSavedOutfit(
+  ownerUid: string,
+  name: string,
+  itemIds: string[],
+  lastWornAt: number | null = null
+): Promise<SavedOutfit> {
+  const database = requireDb();
+  const id = crypto.randomUUID();
+  const outfit: SavedOutfit = { id, ownerUid, name, itemIds, createdAt: Date.now(), lastWornAt };
+  await setDoc(doc(database, "savedOutfits", id), outfit);
+  return outfit;
+}
+
+export async function updateSavedOutfit(
+  outfitId: string,
+  patch: Partial<Pick<SavedOutfit, "name" | "lastWornAt">>
+): Promise<void> {
+  const database = requireDb();
+  await updateDoc(doc(database, "savedOutfits", outfitId), patch);
+}
+
+export async function deleteSavedOutfit(outfitId: string): Promise<void> {
+  const database = requireDb();
+  await deleteDoc(doc(database, "savedOutfits", outfitId));
 }
 
 /** 投稿のアイテムタグなどから、IDでまとめて服を引く。存在しないIDは黙って落とす。 */
@@ -936,6 +981,8 @@ export interface StylePostInput {
   placeName?: string | null;
   /** 正規化済みのハッシュタグ。服由来 + 本人入力の合流結果を渡すこと。 */
   hashtags?: string[];
+  /** 投稿した日の最高気温(℃)。天気に同意している場合のみ。 */
+  tempC?: number | null;
 }
 
 export async function createStylePost(
@@ -964,6 +1011,7 @@ export async function createStylePost(
     outfitPostId: input.outfitPostId,
     placeName: input.placeName ?? null,
     hashtags: input.hashtags ?? [],
+    tempC: input.tempC ?? null,
   };
   await setDoc(doc(database, "stylePosts", id), post);
   await updateDoc(doc(database, "users", owner.uid), { postCount: increment(1) });

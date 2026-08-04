@@ -2,6 +2,7 @@ import { tempBandOf } from "./weather";
 import {
   CATEGORY_ORDER,
   seasonOfMonth,
+  type BodyType,
   type ClosetCategory,
   type ClosetItem,
   type Season,
@@ -35,10 +36,22 @@ export interface OutfitSuggestion {
  */
 export function scoreItem(
   item: ClosetItem,
-  opts: { season: Season; favoriteGenres: StyleGenre[]; now: number; maxTemp?: number | null }
+  opts: {
+    season: Season;
+    favoriteGenres: StyleGenre[];
+    now: number;
+    maxTemp?: number | null;
+    /** 本人の骨格タイプ。服に「合う骨格」が登録されていれば少し優先する。 */
+    bodyType?: BodyType | null;
+  }
 ): ScoredItem {
   const reasons: string[] = [];
   let score = 1;
+
+  if (opts.bodyType && opts.bodyType !== "unknown" && (item.bodyTypes ?? []).includes(opts.bodyType)) {
+    score += 1.2;
+    reasons.push("骨格に合う");
+  }
 
   // 気温に対する当たり判定。季節タグより実際の気温を優先したい日
   // (11月なのに25℃、など)に効かせるための補正。
@@ -122,13 +135,21 @@ export function suggestOutfit(
     now?: number;
     /** その日の最高気温。渡すと気温に合う服を優先する。 */
     maxTemp?: number | null;
+    /** 本人の骨格タイプ。服の「合う骨格」登録と一致すると少し優先する。 */
+    bodyType?: BodyType | null;
   }
 ): OutfitSuggestion | null {
   if (items.length === 0) return null;
 
   const now = opts.now ?? Date.now();
   const season = seasonOfMonth(new Date(now).getMonth() + 1);
-  const scoring = { season, favoriteGenres: opts.favoriteGenres, now, maxTemp: opts.maxTemp ?? null };
+  const scoring = {
+    season,
+    favoriteGenres: opts.favoriteGenres,
+    now,
+    maxTemp: opts.maxTemp ?? null,
+    bodyType: opts.bodyType ?? null,
+  };
 
   const chosen: ClosetItem[] = [];
   const reasons = new Set<string>();

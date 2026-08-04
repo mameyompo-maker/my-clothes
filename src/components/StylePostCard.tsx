@@ -61,8 +61,12 @@ export function StylePostCard({ post, myUid }: { post: StylePost; myUid: string 
         <Link href={`/u/${post.ownerUid}`} className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold">{post.ownerName}</p>
           {post.ownerHandle && <p className="truncate text-[11px] text-muted-foreground">@{post.ownerHandle}</p>}
-          {post.placeName && (
-            <p className="truncate text-[11px] text-muted-foreground">📍 {post.placeName}</p>
+          {(post.placeName || typeof post.tempC === "number") && (
+            <p className="truncate text-[11px] text-muted-foreground">
+              {post.placeName ? `📍 ${post.placeName}` : ""}
+              {post.placeName && typeof post.tempC === "number" ? " ・ " : ""}
+              {typeof post.tempC === "number" ? `🌡 ${Math.round(post.tempC)}℃の日` : ""}
+            </p>
           )}
         </Link>
         <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(post.createdAt)}</span>

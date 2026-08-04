@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { createStylePost, getOutfitPost, listClosetItems } from "@/lib/firestore";
-import { getCurrentPlaceName } from "@/lib/weather";
+import { getCurrentPlaceName, hasWeatherOptIn, loadTodayWeather } from "@/lib/weather";
 import { compressImage } from "@/lib/image";
 import {
   extractHashtagsFromText,
@@ -57,11 +57,21 @@ function NewStylePostContent() {
   const [pendingPoint, setPendingPoint] = useState<{ x: number; y: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // 投稿した日の最高気温。天気に同意済みのときだけ黙って取り、投稿に焼き込む。
+  // 「今日の気温に近い日のコーデ」フィルタ(ホーム)の材料になる。
+  const [tempC, setTempC] = useState<number | null>(null);
 
   useEffect(() => {
     if (!user) return;
     listClosetItems(user.uid).then(setClosetItems);
   }, [user]);
+
+  useEffect(() => {
+    if (!hasWeatherOptIn()) return;
+    loadTodayWeather()
+      .then((w) => setTempC(w?.maxTemp ?? null))
+      .catch(() => setTempC(null));
+  }, []);
 
   // 2択で「これを着る」と決めた直後に来た場合、その候補の服をタグの初期値にしておく。
   useEffect(() => {
@@ -159,6 +169,7 @@ function NewStylePostContent() {
           outfitPostId,
           placeName: placeName.trim() || null,
           hashtags: finalHashtags,
+          tempC,
         },
         compressed
       );

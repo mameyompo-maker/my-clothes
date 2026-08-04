@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import type { ClosetItem, FacePattern, OutfitCandidate } from "@/types/models";
+import type { BodyType, ClosetItem, FacePattern, OutfitCandidate } from "@/types/models";
 import { IconSparkles } from "./icons";
 
 /**
@@ -44,6 +44,15 @@ export function OutfitCard({
         <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
           <IconSparkles className="h-3 w-3" /> AI
         </span>
+      </div>
+    );
+  }
+
+  // その場で撮った全身写真の候補。写真そのものを見せる(AI合成はしない)。
+  if (candidate.photoUrl) {
+    return (
+      <div className={`relative overflow-hidden rounded-2xl bg-surface-muted ${className}`}>
+        <Image src={candidate.photoUrl} alt="全身写真の候補" fill className="object-cover" unoptimized />
       </div>
     );
   }
@@ -95,13 +104,28 @@ function gridClassFor(count: number): string {
   return "grid-cols-3";
 }
 
-/** 候補に含まれるアイテムのラベルを並べたチップ列。投稿カードの下に添える。 */
-export function OutfitItemChips({ candidate, items }: { candidate: OutfitCandidate; items: ClosetItem[] }) {
+/**
+ * 候補に含まれるアイテムのラベルを並べたチップ列。投稿カードの下に添える。
+ * ownerBodyType を渡すと、その骨格に合うと登録された服に「◎骨格」を付ける。
+ * 見る側が「本人に似合う方」を選びやすくするための印。
+ */
+export function OutfitItemChips({
+  candidate,
+  items,
+  ownerBodyType = null,
+}: {
+  candidate: OutfitCandidate;
+  items: ClosetItem[];
+  ownerBodyType?: BodyType | null;
+}) {
   const outfitItems = candidate.itemIds
     .map((id) => items.find((i) => i.id === id))
     .filter((i): i is ClosetItem => Boolean(i));
 
   if (outfitItems.length === 0) return null;
+
+  const suits = (item: ClosetItem) =>
+    ownerBodyType && ownerBodyType !== "unknown" && (item.bodyTypes ?? []).includes(ownerBodyType);
 
   return (
     <div className="flex flex-wrap gap-1">
@@ -112,6 +136,7 @@ export function OutfitItemChips({ candidate, items }: { candidate: OutfitCandida
         >
           {item.brand ? `${item.brand} ` : ""}
           {item.label}
+          {suits(item) ? " ◎骨格に合う" : ""}
         </span>
       ))}
     </div>

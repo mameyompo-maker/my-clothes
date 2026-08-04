@@ -114,6 +114,13 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && resource.data.ownerUid == me();
     }
 
+    // savedOutfits: 保存したコーデ(名前付きの服の組み合わせ)。本人だけが読み書きする。
+    match /savedOutfits/{outfitId} {
+      allow read: if isSignedIn() && resource.data.ownerUid == me();
+      allow create: if isSignedIn() && request.resource.data.ownerUid == me();
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == me();
+    }
+
     // outfitPosts(2択): 投稿者本人 or 共有された友達だけ読める。
     match /outfitPosts/{postId} {
       // visibility は後から足したフィールドなので、古い投稿には存在しない。

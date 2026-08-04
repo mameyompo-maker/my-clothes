@@ -13,7 +13,10 @@ import {
   hasCreatedOutfitToday,
   listClosetItems,
   listFacePatterns,
+  listMyOutfitPosts,
+  listSavedOutfits,
   undoOutfitPost,
+  updateUserProfile,
   uploadImage,
 } from "@/lib/firestore";
 import { composeOutfitImage, precomposeOutfit } from "@/lib/functions";
@@ -26,14 +29,20 @@ import {
   FREE_UNDO_PER_DAY,
   isPremium,
   otherWardrobe,
+  outfitSignature,
+  SEASONS,
+  STYLE_GENRES,
   WARDROBE_LABELS,
   wardrobeOfItem,
   type BuildMode,
   type ClosetCategory,
   type ClosetItem,
   type FacePattern,
+  type FriendGroup,
   type OutfitCandidate,
   type PostVisibility,
+  type Season,
+  type StyleGenre,
   type UserProfile,
 } from "@/types/models";
 import { HangerRail } from "@/components/HangerRail";
@@ -51,7 +60,7 @@ import {
   TopBar,
   inputClass,
 } from "@/components/ui";
-import { IconCamera, IconCheck, IconChevronLeft, IconCloset, IconSparkles } from "@/components/icons";
+import { IconCamera, IconCheck, IconChevronLeft, IconCloset, IconSparkles, IconX } from "@/components/icons";
 
 type Slot = 0 | 1;
 type Step = "mode" | "build" | "finish";
@@ -61,6 +70,9 @@ interface Draft {
   facePatternId: string | null;
   liveCaptureFile: File | null;
   liveCapturePreviewUrl: string | null;
+  /** 服の組み合わせの代わりに「いま撮った全身写真」で出す候補(2026-08-04 追加)。 */
+  outfitPhotoFile: File | null;
+  outfitPhotoPreviewUrl: string | null;
 }
 
 const emptyDraft = (): Draft => ({
@@ -68,10 +80,21 @@ const emptyDraft = (): Draft => ({
   facePatternId: null,
   liveCaptureFile: null,
   liveCapturePreviewUrl: null,
+  outfitPhotoFile: null,
+  outfitPhotoPreviewUrl: null,
 });
 
+/** 「まえのコーデ」1件。保存コーデ(名前つき)と、過去に着た組み合わせの両方が入る。 */
+interface QuickCombo {
+  key: string;
+  name: string | null;
+  itemIds: string[];
+  /** 最後に着てから何日か。null は未着用。読み込み時に計算して固定する。 */
+  daysAgo: number | null;
+}
+
 export default function CreatePostPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const router = useRouter();
 
   const [closetItems, setClosetItems] = useState<ClosetItem[]>([]);
@@ -86,6 +109,16 @@ export default function CreatePostPage() {
   const [showOtherWardrobe, setShowOtherWardrobe] = useState(false);
   // その日の天気。提案の重みづけに使う。許可していなければ null のまま。
   const [weather, setWeather] = useState<TodayWeather | null>(null);
+  // まえのコーデ(保存コーデ+過去に着た組み合わせ)。パッと選んで組み直しを省くための一覧。
+  const [quickCombos, setQuickCombos] = useState<QuickCombo[]>([]);
+  // 服選びの絞り込み(季節・ジャンル・色)。「あの色のやつ」をすぐ出すため。
+  const [filterSeason, setFilterSeason] = useState<Season | null>(null);
+  const [filterGenre, setFilterGenre] = useState<StyleGenre | null>(null);
+  const [filterColor, setFilterColor] = useState<string | null>(null);
+  // 共有相手のグループ保存
+  const [groupName, setGroupName] = useState("");
+  const [groupBusy, setGroupBusy] = useState(false);
+  const outfitPhotoInputRef = useRef<HTMLInputElement>(null);
 
   const premium = isPremium(profile);
   const primaryWardrobe = profile?.primaryWardrobe ?? null;
@@ -117,6 +150,8 @@ export default function CreatePostPage() {
   const liveUploads = useRef<Map<File, Promise<string>>>(new Map());
 
   function draftSignature(d: Draft): string | null {
+    // 全身写真で出す候補はAI合成をしない(写真そのものを見せる)。
+    if (d.outfitPhotoFile) return null;
     const itemIds = Object.values(d.itemIdsByCategory);
     if (itemIds.length === 0) return null;
     const face = d.liveCaptureFile
@@ -146,14 +181,52 @@ export default function CreatePostPage() {
       getFriendProfiles(profile.friendUids),
       hasCreatedOutfitToday(user.uid),
       countOutfitUndosToday(user.uid),
+      listSavedOutfits(user.uid),
+      listMyOutfitPosts(user.uid),
     ])
-      .then(([items, f, fr, madeToday, undos]) => {
+      .then(([items, f, fr, madeToday, undos, saved, pastPosts]) => {
         setClosetItems(items);
         setFaces(f);
         setFriends(fr);
         setSharedWith(new Set(fr.map((x) => x.uid)));
         setAlreadyToday(madeToday);
         setUndosToday(undos);
+
+        // 「まえのコーデ」を組み立てる。保存コーデ(名前つき)を先に置き、
+        // 過去の2択で「着る」と確定した組み合わせを署名で重複排除しながら足す。
+        // 何日前に着たかを一緒に出すことで、コーデ被りにその場で気付ける。
+        const now = Date.now();
+        const bySig = new Map<string, QuickCombo & { lastWornAt: number | null }>();
+        for (const so of saved) {
+          bySig.set(outfitSignature(so.itemIds), {
+            key: so.id,
+            name: so.name,
+            itemIds: so.itemIds,
+            daysAgo: null,
+            lastWornAt: so.lastWornAt ?? null,
+          });
+        }
+        for (const post of pastPosts) {
+          const d = post.decidedCandidateIndex;
+          if (d === null || d === undefined) continue;
+          const cand = post.candidates[d];
+          if (!cand || cand.itemIds.length === 0) continue;
+          const sig = outfitSignature(cand.itemIds);
+          const existing = bySig.get(sig);
+          if (existing) {
+            existing.lastWornAt = Math.max(existing.lastWornAt ?? 0, post.createdAt);
+          } else {
+            bySig.set(sig, { key: sig, name: null, itemIds: cand.itemIds, daysAgo: null, lastWornAt: post.createdAt });
+          }
+        }
+        const combos = Array.from(bySig.values())
+          .map((c) => ({
+            ...c,
+            daysAgo: c.lastWornAt ? Math.max(0, Math.floor((now - c.lastWornAt) / 86400000)) : null,
+          }))
+          .sort((a, b) => (b.lastWornAt ?? 0) - (a.lastWornAt ?? 0))
+          .slice(0, 12);
+        setQuickCombos(combos);
       })
       .finally(() => setLoading(false));
   }, [user, profile]);
@@ -261,12 +334,42 @@ export default function CreatePostPage() {
     updateDraft(slot, { itemIdsByCategory: nextMap });
   }
 
+  /** まえのコーデをそのまま今の候補に流し込む。組み直しの手間を丸ごと省く。 */
+  function applyCombo(combo: QuickCombo) {
+    const map: Partial<Record<ClosetCategory, string>> = {};
+    for (const id of combo.itemIds) {
+      const item = closetItems.find((i) => i.id === id);
+      if (item) map[item.category] = item.id;
+    }
+    if (Object.keys(map).length === 0) return;
+    updateDraft(slot, { itemIdsByCategory: map, outfitPhotoFile: null, outfitPhotoPreviewUrl: null });
+  }
+
+  function handleOutfitPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    updateDraft(slot, {
+      outfitPhotoFile: file,
+      outfitPhotoPreviewUrl: URL.createObjectURL(file),
+    });
+  }
+
+  /** 服選びの絞り込み(季節・ジャンル・色)。季節タグ未設定は通年扱いで残す。 */
+  function matchesFilters(i: ClosetItem): boolean {
+    if (filterSeason && (i.seasons ?? []).length > 0 && !(i.seasons ?? []).includes(filterSeason)) return false;
+    if (filterGenre && !(i.genres ?? []).includes(filterGenre)) return false;
+    if (filterColor && (i.color ?? "").trim() !== filterColor) return false;
+    return true;
+  }
+
   function applySuggestion(target: Slot, hero?: ClosetItem | null) {
     // おまかせは「主に使う服」に従い、さらに今日の気温も見る。
     const suggestion = suggestOutfit(visibleItems, {
       maxTemp: weather?.maxTemp ?? null,
       favoriteGenres: profile?.favoriteGenres ?? [],
       heroItem: hero ?? null,
+      bodyType: profile?.bodyType ?? null,
     });
     if (!suggestion) return;
     const map: Partial<Record<ClosetCategory, string>> = {};
@@ -289,7 +392,22 @@ export default function CreatePostPage() {
       .map((id) => closetItems.find((i) => i.id === id))
       .filter((i): i is ClosetItem => Boolean(i));
 
-  const slotReady = (target: Slot) => Object.keys(drafts[target].itemIdsByCategory).length > 0;
+  // 候補は「服の組み合わせ」か「全身写真」のどちらかがあれば成立する。
+  const slotReady = (target: Slot) =>
+    Object.keys(drafts[target].itemIdsByCategory).length > 0 || drafts[target].outfitPhotoFile !== null;
+
+  // 手持ちの服の色から絞り込み候補を作る(登録数が多い色から最大8つ)。
+  const colorOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of visibleItems) {
+      const c = (i.color ?? "").trim();
+      if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([c]) => c);
+  }, [visibleItems]);
   const bothReady = slotReady(0) && slotReady(1);
   const canSubmit = Boolean(user && bothReady && mood.trim() && !submitting);
 
@@ -322,15 +440,22 @@ export default function CreatePostPage() {
           // ここで別のURLに上げ直すと合成キャッシュのキーが変わり、ヒットしなくなる。
           liveCaptureUrl = await uploadLiveCapture(d.liveCaptureFile, user.uid);
         }
+        // 全身写真の候補。写真そのものを見せるので、AI合成はせず ready で作る。
+        let photoUrl: string | null = null;
+        if (d.outfitPhotoFile) {
+          const compressed = await compressImage(d.outfitPhotoFile);
+          photoUrl = await uploadImage(`outfits/${user.uid}/${crypto.randomUUID()}.jpg`, compressed);
+        }
         const sig = draftSignature(d);
         const readyUrl = sig ? precomposed[sig] : undefined;
         candidates.push({
           itemIds: Object.values(d.itemIdsByCategory) as string[],
           facePatternId: liveCaptureUrl ? null : d.facePatternId,
           liveCaptureUrl,
+          photoUrl,
           // 先行合成が終わっていれば、投稿の時点で合成済みとして作る(待ち時間ゼロ)。
           composedImageUrl: readyUrl ?? null,
-          composeStatus: readyUrl ? "ready" : "pending",
+          composeStatus: photoUrl || readyUrl ? "ready" : "pending",
         });
       }
 
@@ -359,6 +484,40 @@ export default function CreatePostPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "投稿に失敗しました。");
       setSubmitting(false);
+    }
+  }
+
+  /** グループの共有相手をそのまま適用する(友達でなくなった人は黙って外す)。 */
+  function applyGroup(g: FriendGroup) {
+    setSharedWith(new Set(g.memberUids.filter((u) => friends.some((f) => f.uid === u))));
+  }
+
+  async function saveGroup() {
+    if (!user || !profile || !groupName.trim() || sharedWith.size === 0) return;
+    setGroupBusy(true);
+    try {
+      const next: FriendGroup[] = [
+        ...(profile.friendGroups ?? []),
+        { id: crypto.randomUUID(), name: groupName.trim().slice(0, 20), memberUids: Array.from(sharedWith) },
+      ];
+      await updateUserProfile(user.uid, { friendGroups: next });
+      await refreshProfile();
+      setGroupName("");
+    } finally {
+      setGroupBusy(false);
+    }
+  }
+
+  async function removeGroup(g: FriendGroup) {
+    if (!user || !profile) return;
+    setGroupBusy(true);
+    try {
+      await updateUserProfile(user.uid, {
+        friendGroups: (profile.friendGroups ?? []).filter((x) => x.id !== g.id),
+      });
+      await refreshProfile();
+    } finally {
+      setGroupBusy(false);
     }
   }
 
@@ -526,10 +685,55 @@ export default function CreatePostPage() {
 
   // ---------------- Step 2: 服を選ぶ ----------------
   if (step === "build") {
-    const itemsForPicker =
+    const itemsForPicker = (
       buildMode === "hero" && !slotReady(slot)
         ? visibleItems
-        : visibleItems.filter((i) => i.category === activeCategory);
+        : visibleItems.filter((i) => i.category === activeCategory)
+    ).filter(matchesFilters);
+
+    // 季節・ジャンル・色の絞り込みチップ。「あの色のやつ」をすぐ出すための行。
+    const filterRows = (
+      <>
+        <div className="no-scrollbar -mx-4 mb-2 flex gap-2 overflow-x-auto px-4">
+          {SEASONS.map((s) => (
+            <Chip
+              key={s.value}
+              size="sm"
+              selected={filterSeason === s.value}
+              onClick={() => setFilterSeason(filterSeason === s.value ? null : s.value)}
+            >
+              {s.emoji} {s.label}
+            </Chip>
+          ))}
+        </div>
+        <div className="no-scrollbar -mx-4 mb-2 flex gap-2 overflow-x-auto px-4">
+          {STYLE_GENRES.map((g) => (
+            <Chip
+              key={g.value}
+              size="sm"
+              selected={filterGenre === g.value}
+              onClick={() => setFilterGenre(filterGenre === g.value ? null : g.value)}
+            >
+              {g.label}
+            </Chip>
+          ))}
+        </div>
+        {colorOptions.length > 0 && (
+          <div className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4">
+            {colorOptions.map((c) => (
+              <Chip
+                key={c}
+                size="sm"
+                selected={filterColor === c}
+                onClick={() => setFilterColor(filterColor === c ? null : c)}
+              >
+                🎨 {c}
+              </Chip>
+            ))}
+          </div>
+        )}
+      </>
+    );
 
     return (
       <>
@@ -569,6 +773,49 @@ export default function CreatePostPage() {
             ))}
           </div>
 
+          {/* まえのコーデからパッと選ぶ。「◯日前に着た」で被りにも気付ける。 */}
+          {quickCombos.length > 0 && (
+            <div className="mb-4">
+              <p className="mb-2 text-[11px] font-semibold text-muted-foreground">まえのコーデからパッと選ぶ</p>
+              <div className="no-scrollbar -mx-4 flex gap-2.5 overflow-x-auto px-4">
+                {quickCombos.map((combo) => {
+                  const comboItems = combo.itemIds
+                    .map((id) => closetItems.find((i) => i.id === id))
+                    .filter((i): i is ClosetItem => Boolean(i));
+                  if (comboItems.length === 0) return null;
+                  const recent = combo.daysAgo !== null && combo.daysAgo <= 7;
+                  return (
+                    <button
+                      key={combo.key}
+                      onClick={() => applyCombo(combo)}
+                      className="tappable w-28 shrink-0 rounded-2xl border border-border bg-surface p-1.5 text-left"
+                    >
+                      <span className="grid grid-cols-2 gap-0.5">
+                        {comboItems.slice(0, 4).map((item) => (
+                          <span key={item.id} className="relative block aspect-square overflow-hidden rounded-md bg-surface-muted">
+                            <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
+                          </span>
+                        ))}
+                      </span>
+                      <span className="mt-1 block truncate text-[10px] font-semibold">
+                        {combo.name ?? "着たコーデ"}
+                      </span>
+                      <span className={`block text-[9px] ${recent ? "font-bold text-danger" : "text-muted-foreground"}`}>
+                        {combo.daysAgo === null
+                          ? "まだ着ていない"
+                          : combo.daysAgo === 0
+                            ? "⚠ 今日着た"
+                            : recent
+                              ? `⚠ ${combo.daysAgo}日前に着た`
+                              : `${combo.daysAgo}日前に着た`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="mb-4 min-h-[54px] rounded-2xl border border-border bg-surface p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[11px] font-semibold text-muted-foreground">選んだアイテム</span>
@@ -604,6 +851,45 @@ export default function CreatePostPage() {
             )}
           </div>
 
+          {/* 服を選ぶ代わりに、その場で撮った全身写真で比べる候補にもできる。
+              鏡の前で2パターン着てみて撮る、という使い方向け。 */}
+          <input
+            ref={outfitPhotoInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleOutfitPhoto}
+          />
+          <div className="mb-4 rounded-2xl border border-dashed border-border p-3">
+            {draft.outfitPhotoPreviewUrl ? (
+              <div className="flex items-center gap-3">
+                <span className="relative block h-24 w-[72px] shrink-0 overflow-hidden rounded-xl bg-surface-muted">
+                  <Image src={draft.outfitPhotoPreviewUrl} alt="全身写真の候補" fill className="object-cover" unoptimized />
+                </span>
+                <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-muted-foreground">
+                  候補{slot === 0 ? "A" : "B"}はこの全身写真で出します。服を選ばなくてもOKで、
+                  選んであれば値段やタグも一緒に付きます。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => updateDraft(slot, { outfitPhotoFile: null, outfitPhotoPreviewUrl: null })}
+                  className="tappable shrink-0 text-[11px] font-bold text-muted-foreground"
+                >
+                  やめる
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => outfitPhotoInputRef.current?.click()}
+                className="tappable flex w-full items-center gap-2 text-xs font-bold text-accent"
+              >
+                <IconCamera className="h-4 w-4 shrink-0" />
+                服を選ぶ代わりに、いま撮った全身写真で比べる
+              </button>
+            )}
+          </div>
+
           {buildMode === "hero" && !slotReady(slot) ? (
             <>
               <p className="mb-3 text-xs font-semibold text-muted-foreground">
@@ -611,8 +897,9 @@ export default function CreatePostPage() {
                   ? "主役を1着えらぶと、残りは自動で提案します"
                   : "今日いちばん着たい1着をえらんでください"}
               </p>
+              {filterRows}
               <HangerRail
-                items={visibleItems}
+                items={itemsForPicker}
                 selectedIds={Object.values(draft.itemIdsByCategory) as string[]}
                 onSelect={(item) => {
                   // 残りを自動で埋めるのはプレミアム機能。無料では主役だけ置いて、
@@ -624,7 +911,7 @@ export default function CreatePostPage() {
             </>
           ) : (
             <>
-              <div className="no-scrollbar -mx-4 mb-4 flex gap-2 overflow-x-auto px-4">
+              <div className="no-scrollbar -mx-4 mb-2 flex gap-2 overflow-x-auto px-4">
                 {CLOSET_CATEGORIES.filter((c) => visibleItems.some((i) => i.category === c.value)).map((c) => (
                   <Chip key={c.value} selected={activeCategory === c.value} onClick={() => setCategoryOverride(c.value)}>
                     {c.label}
@@ -634,8 +921,14 @@ export default function CreatePostPage() {
                 ))}
               </div>
 
+              {filterRows}
+
               {itemsForPicker.length === 0 ? (
-                <p className="py-8 text-center text-xs text-muted-foreground">このカテゴリーの服がありません。</p>
+                <p className="py-8 text-center text-xs text-muted-foreground">
+                  {filterSeason || filterGenre || filterColor
+                    ? "絞り込みに合う服がありません。チップをもう一度タップすると外せます。"
+                    : "このカテゴリーの服がありません。"}
+                </p>
               ) : (
                 <HangerRail
                   items={itemsForPicker}
@@ -694,16 +987,31 @@ export default function CreatePostPage() {
             const composed = sig ? precomposed[sig] : undefined;
             return (
               <div key={s} className="rounded-2xl border border-border bg-surface p-2">
-                <p className="mb-1.5 text-center text-xs font-bold">候補{s === 0 ? "A" : "B"}</p>
-                <div className="grid grid-cols-2 gap-1">
-                  {selectedItems(s)
-                    .slice(0, 4)
-                    .map((item) => (
-                      <div key={item.id} className="relative aspect-square overflow-hidden rounded-lg bg-surface-muted">
-                        <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
-                      </div>
-                    ))}
-                </div>
+                <p className="mb-1.5 text-center text-xs font-bold">
+                  候補{s === 0 ? "A" : "B"}
+                  {drafts[s].outfitPhotoPreviewUrl ? "(写真)" : ""}
+                </p>
+                {drafts[s].outfitPhotoPreviewUrl ? (
+                  <div className="relative aspect-[3/4] overflow-hidden rounded-lg bg-surface-muted">
+                    <Image
+                      src={drafts[s].outfitPhotoPreviewUrl as string}
+                      alt="全身写真の候補"
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1">
+                    {selectedItems(s)
+                      .slice(0, 4)
+                      .map((item) => (
+                        <div key={item.id} className="relative aspect-square overflow-hidden rounded-lg bg-surface-muted">
+                          <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
+                        </div>
+                      ))}
+                  </div>
+                )}
                 {/* 顔を選ぶと、入力の裏でAI合成を先に進めておく(投稿時の待ちを無くすため)。 */}
                 {sig && (
                   <p
@@ -807,6 +1115,30 @@ export default function CreatePostPage() {
         </Field>
 
         <h2 className="mb-2 text-sm font-bold">誰に選んでもらう?</h2>
+
+        {/* グループ(共有相手のプリセット)。タップで適用、✕で削除。
+            下の選択状態を名前を付けて保存すると、次からワンタップで呼び出せる。 */}
+        {(profile?.friendGroups ?? []).length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {(profile?.friendGroups ?? []).map((g) => (
+              <span key={g.id} className="flex items-center gap-1">
+                <Chip size="sm" selected={false} onClick={() => applyGroup(g)}>
+                  👥 {g.name}({g.memberUids.filter((u) => friends.some((f) => f.uid === u)).length})
+                </Chip>
+                <button
+                  type="button"
+                  onClick={() => removeGroup(g)}
+                  disabled={groupBusy}
+                  aria-label={`グループ「${g.name}」を削除`}
+                  className="tappable text-muted-foreground"
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {friends.length === 0 ? (
           <div className="mb-4 rounded-2xl border border-border bg-surface p-4">
             <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
@@ -817,7 +1149,7 @@ export default function CreatePostPage() {
             </Link>
           </div>
         ) : (
-          <div className="mb-4 space-y-2">
+          <div className="mb-3 space-y-2">
             {friends.map((f) => (
               <label
                 key={f.uid}
@@ -840,6 +1172,27 @@ export default function CreatePostPage() {
                 <span className="text-sm">{f.name}</span>
               </label>
             ))}
+          </div>
+        )}
+
+        {/* いま選んでいる相手をグループとして保存(2人以上友達がいるときだけ意味がある)。 */}
+        {friends.length > 1 && sharedWith.size > 0 && (
+          <div className="mb-4 flex items-center gap-2">
+            <input
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              placeholder="この選択をグループ名で保存(例: 仲良し)"
+              maxLength={20}
+              className={`${inputClass} flex-1 py-2 text-xs`}
+            />
+            <button
+              type="button"
+              onClick={saveGroup}
+              disabled={!groupName.trim() || groupBusy}
+              className="tappable shrink-0 rounded-full border border-border-strong bg-surface px-3.5 py-2 text-xs font-bold disabled:opacity-40"
+            >
+              {groupBusy ? "保存中…" : "グループ保存"}
+            </button>
           </div>
         )}
 

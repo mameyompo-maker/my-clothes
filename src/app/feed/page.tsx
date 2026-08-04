@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { listClosetItems, watchNotifications, watchPublicStylePosts } from "@/lib/firestore";
 import { recommendHeadline } from "@/lib/recommend";
+import { hasWeatherOptIn, loadTodayWeather, type TodayWeather } from "@/lib/weather";
 import type { StylePost } from "@/types/models";
 import { StylePostCard } from "@/components/StylePostCard";
 import { WeatherBar } from "@/components/WeatherBar";
 import { SuggestedUsers } from "@/components/SuggestedUsers";
-import { EmptyState, IconButton, PrimaryButton, Skeleton, TopBar } from "@/components/ui";
+import { Chip, EmptyState, IconButton, PrimaryButton, Skeleton, TopBar } from "@/components/ui";
 import { IconHeart, IconMessage, IconSearch, IconSparkles } from "@/components/icons";
 
 export default function HomeFeedPage() {
@@ -17,6 +18,9 @@ export default function HomeFeedPage() {
   const [posts, setPosts] = useState<StylePost[] | null>(null);
   const [itemCount, setItemCount] = useState(0);
   const [unread, setUnread] = useState(0);
+  // 「今日の気温に近い日のコーデ」フィルタ。天気に同意している人にだけ出す。
+  const [weather, setWeather] = useState<TodayWeather | null>(null);
+  const [nearTempOnly, setNearTempOnly] = useState(false);
 
   useEffect(() => {
     // ブロックした相手・自分をブロックした相手の投稿はフィードから外す。
@@ -30,6 +34,13 @@ export default function HomeFeedPage() {
     if (!user) return;
     listClosetItems(user.uid).then((items) => setItemCount(items.length));
   }, [user]);
+
+  useEffect(() => {
+    if (!hasWeatherOptIn()) return;
+    loadTodayWeather()
+      .then(setWeather)
+      .catch(() => setWeather(null));
+  }, []);
 
   // 未読数は「最後に読んだ時刻より新しい通知の件数」。件数を別に持たないので、
   // どの端末で読んでも数がずれない。
@@ -101,6 +112,19 @@ export default function HomeFeedPage() {
           </div>
         )}
 
+        {/* 天気に同意している人には「今日の気温に近い日のコーデ」で絞れるようにする。
+            気温は投稿時に焼き込んだ tempC(無い投稿はフィルタ時に出ない)。 */}
+        {weather && posts !== null && posts.length > 0 && (
+          <div className="no-scrollbar mb-1 flex gap-2 overflow-x-auto px-4">
+            <Chip size="sm" selected={!nearTempOnly} onClick={() => setNearTempOnly(false)}>
+              すべて
+            </Chip>
+            <Chip size="sm" selected={nearTempOnly} onClick={() => setNearTempOnly(true)}>
+              🌡 今日の気温に近い({Math.round(weather.maxTemp)}℃前後)
+            </Chip>
+          </div>
+        )}
+
         {posts === null ? (
           <div className="space-y-6 px-4">
             <Skeleton className="h-[420px]" />
@@ -119,14 +143,33 @@ export default function HomeFeedPage() {
             />
           </div>
         ) : (
-          <div>
-            {posts.map((post) => (
-              <StylePostCard key={post.id} post={post} myUid={user?.uid ?? null} />
-            ))}
-            <p className="py-8 text-center text-xs text-muted-foreground">
-              {profile ? "ここまでが最新の投稿です" : ""}
-            </p>
-          </div>
+          (() => {
+            const visible =
+              nearTempOnly && weather
+                ? posts.filter(
+                    (p) => typeof p.tempC === "number" && Math.abs(p.tempC - weather.maxTemp) <= 3
+                  )
+                : posts;
+            if (visible.length === 0) {
+              return (
+                <p className="px-4 py-10 text-center text-xs leading-relaxed text-muted-foreground">
+                  今日の気温({Math.round(weather?.maxTemp ?? 0)}℃前後)に近い日のコーデはまだありません。
+                  <br />
+                  気温は投稿された日に記録されていくので、これから増えていきます。
+                </p>
+              );
+            }
+            return (
+              <div>
+                {visible.map((post) => (
+                  <StylePostCard key={post.id} post={post} myUid={user?.uid ?? null} />
+                ))}
+                <p className="py-8 text-center text-xs text-muted-foreground">
+                  {profile ? "ここまでが最新の投稿です" : ""}
+                </p>
+              </div>
+            );
+          })()
         )}
       </div>
     </>
