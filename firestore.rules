@@ -297,5 +297,24 @@ service cloud.firestore {
         allow update, delete: if false;
       }
     }
+
+    // ---- collectionGroup クエリ用 ----
+    //
+    // ⚠ **固定パスのルールは collectionGroup クエリには適用されない。**
+    // 上の `match /stylePosts/{postId}/likes/{likeUid}` があっても、
+    // `collectionGroup('likes')` のクエリは別扱いで、再帰ワイルドカード
+    // `{path=**}` のルールが無いと問答無用で拒否される(Firestoreの仕様)。
+    // 条件は固定パス側とまったく同じものを書いてある。
+    //
+    // これが使えないと:
+    //  - 自分の「いいね/保存」を1回で引けず、カード1枚ごとに2往復する経路に落ちる
+    //  - 「保存した投稿」の一覧が空になる
+    // どちらも画面は壊れないが、遅くなる/機能が欠ける。
+    match /{path=**}/likes/{likeUid} {
+      allow read: if isSignedIn();
+    }
+    match /{path=**}/saves/{saveUid} {
+      allow read: if isSignedIn() && me() == saveUid;
+    }
   }
 }

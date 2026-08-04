@@ -650,6 +650,14 @@ Storage の既定は `Cache-Control: private, max-age=0`。`uploadImage` が
 既存ファイルは `scripts/backfill_cache_control.py --apply` で塗り直し済み。
 **新しいアップロード経路を作るときは必ず `uploadImage` を通すこと。**
 
+### ②' collectionGroup クエリにはルールも索引も**別に**要る
+`match /stylePosts/{postId}/saves/{saveUid}` のような**固定パスのルールは
+collectionGroup クエリには適用されない**(Firestoreの仕様)。再帰ワイルドカード
+`match /{path=**}/saves/{saveUid}` を別に書く必要がある。これが無かったので、
+「保存した投稿」は索引とルールの両方で塞がれていた。2026-08-05 に両方追加済み。
+**collectionGroup を使うときは、索引(fieldOverrides)とルール(`{path=**}`)を
+セットで用意すること。**
+
 ### ③ 往復回数(1画面あたりのクエリ数)
 - **いいね/保存**: カードごとに `hasLiked`+`hasSaved` を呼んでいた(20枚で40往復)。
   → `AuthProvider` が起動時に collectionGroup で一括取得し、全カードに配る。
@@ -846,3 +854,5 @@ Kazさんに10案を提示し、**7つを実装済み**。残り3つと理由は
    `cacheControl` が付かず、ブラウザにキャッシュされない。
 12. **一覧・グリッドの画像は `thumbSrc(post)` を使う。**`post.imageUrl` を直接読むと
    1280px の本体を3列グリッドに並べることになる。
+13. **collectionGroup を使うときは、索引と `{path=**}` のルールをセットで用意する。**
+   固定パスのルールは collectionGroup クエリに適用されない。
