@@ -94,13 +94,25 @@ def set_doc(path: str, data: dict):
 
 
 def upload_public(path: str, data: bytes, content_type: str) -> str:
-    """Storage へ公開オブジェクトとしてアップロードし、公開URLを返す。"""
+    """Storage へ公開オブジェクトとしてアップロードし、公開URLを返す。
+
+    cacheControl を明示するのが重要。付けないと ``private, max-age=0`` で配信され、
+    画面を開くたびにブラウザが同じ画像を取り直す(アプリ側の uploadImage と同じ理由。
+    ファイル名は固定IDだが、内容が変わるのは再投入したときだけなので1時間にしてある)。
+    """
     name = urllib.request.quote(path, safe="")
     url = (
         f"https://storage.googleapis.com/upload/storage/v1/b/{BUCKET}/o"
         f"?uploadType=media&name={name}&predefinedAcl=publicRead"
     )
     _request(url, data, "POST", content_type)
+    # cacheControl はアップロードのクエリでは指定できないので、直後に metadata を更新する。
+    _request(
+        f"https://storage.googleapis.com/storage/v1/b/{BUCKET}/o/{name}",
+        json.dumps({"cacheControl": "public, max-age=3600"}).encode("utf-8"),
+        "PATCH",
+        "application/json",
+    )
     public = f"https://storage.googleapis.com/{BUCKET}/{path}"
     print(f"  storage:   {public}")
     return public

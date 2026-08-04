@@ -587,10 +587,25 @@ export async function listFollowerUids(myUid: string): Promise<string[]> {
 
 // ---------- Images ----------
 
+/**
+ * 画像を1枚アップロードして公開URLを返す。
+ *
+ * ⚠ **`cacheControl` を必ず付けること。**
+ * Firebase Storage は既定で `Cache-Control: private, max-age=0` を返す。つまり
+ * ブラウザが一切キャッシュしないので、**画面を移動して戻るたび・スクロールで
+ * 戻るたびに、同じ写真を丸ごと再ダウンロードしていた**(2026-08-05 に実測して判明。
+ * クローゼットを開くたび26枚を毎回取り直していた計算になる)。
+ *
+ * このアプリが上げるファイル名は必ず UUID か固定IDで、**同じパスの中身が
+ * 後から変わることはない**(プロフィール画像の変更も新しいUUIDになる)。
+ * したがって immutable として1年キャッシュさせて安全。
+ */
+const IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
 export async function uploadImage(path: string, file: Blob): Promise<string> {
   const bucket = requireStorage();
   const storageRef = ref(bucket, path);
-  await uploadBytes(storageRef, file);
+  await uploadBytes(storageRef, file, { cacheControl: IMAGE_CACHE_CONTROL });
   return getDownloadURL(storageRef);
 }
 
