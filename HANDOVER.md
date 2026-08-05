@@ -179,6 +179,38 @@ SNS機能(公開投稿・フォロー・DM)は後から足したもので、主�
 すべて「一見動いているように見えるが、実は一度も成功していなかった」類のもの。
 **共通する教訓: 症状から推測せず、実データ・ログ・git履歴を先に見る。**
 
+### ①' AI合成は **2026-08-05 時点でもまだ一度も成功していなかった**(さらに原因2つ)
+
+下の①(リージョン不一致・APIキー)を直した後も、実データでは
+**全2択の候補が `composeStatus: "pending"`、`composedCache` は failed 1件だけ**だった。
+Cloud Functions のログを読んで原因が2つ見つかった。**どちらもGeminiとも課金とも無関係。**
+
+1. **見本の服の画像URLが相対パス。**Firestore には `/seed/women/xxx.png` の形で
+   入っている。ブラウザは表示できるが、**サーバーの `fetch` は絶対URLしか受け付けず**
+   `TypeError: Failed to parse URL` で即死していた。実データで closetItems 77件が
+   **すべて**この形式 → 事実上あらゆるコーデで合成が失敗していた。
+   → `functions/src/index.ts` の `absoluteImageUrl()` で公開サイトのオリジンを補う。
+   **`public/` 配下の画像をサーバーから読む経路を作るときは必ずこれを通すこと。**
+2. **`composeOutfitImage` の Cloud Run invoker 権限が空だった。**呼び出しが
+   「The request was not authenticated」で弾かれ、**関数本体に到達していなかった**
+   (`precomposeOutfit` には付いていた)。callable は Firebase SDK が独自に認証情報を
+   運ぶので Cloud Run からは常に未認証に見える。invoker は public にして、
+   **関数の中で `request.auth` を確認する**のが標準構成。
+   → `onCall` のオプションに `invoker: "public"` を明示した。ただし
+   **既存関数の更新では IAM に反映されない**ので、初回だけ手で付ける必要がある:
+   ```
+   gcloud run services add-iam-policy-binding composeoutfitimage \
+     --project=my-clothes-46c81 --region=us-central1 \
+     --member=allUsers --role=roles/run.invoker
+   ```
+
+なお **AI合成は「無料」機能**(4章の線引き)なので、**プレミアムにしても合成は変わらない**。
+「課金したのにAIが使えない」の答えは「AI合成は元から無料機能で、上の2つのバグで
+壊れていた」だった。課金自体は成功している(`plan: premium`)。
+
+実際のURLとキーで Gemini まで通し、合成画像が返ることを確認済み
+(`scratchpad/test_compose.py` の手順。1枚約12円かかる)。
+
 ### ① AI合成が一度も動いていなかった(原因2つ)
 
 - **リージョン不一致**: クライアントが `asia-northeast1`、関数が `us-central1`。存在しないエンドポイントを叩いていた。
