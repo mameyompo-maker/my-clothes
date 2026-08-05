@@ -244,7 +244,21 @@ function buildPersonalHint(profile: UserProfileDoc | null): string {
 // region は必ずクライアント側 (src/lib/functions.ts の getFunctions(app, ...)) と一致させること。
 // 一致していないと callable の呼び出しが存在しないエンドポイントに飛び、AI合成が丸ごと無言で失敗する。
 export const composeOutfitImage = onCall<{ postId: string; candidateIndex: number }>(
-  { region: FUNCTION_REGION, secrets: [geminiApiKey], timeoutSeconds: 120, memory: "512MiB" },
+  {
+    region: FUNCTION_REGION,
+    secrets: [geminiApiKey],
+    timeoutSeconds: 120,
+    memory: "512MiB",
+    // ⚠ **2026-08-05 に判明した、AI合成が動かなかったもうひとつの原因。**
+    // この関数だけ Cloud Run の invoker 権限が空になっており、呼び出しが
+    // 「The request was not authenticated」で弾かれて**関数本体に到達していなかった**。
+    // callable は Firebase SDK が独自ヘッダで認証情報を運ぶので、Cloud Run から見ると
+    // 常に「未認証」に見える。そのため invoker は public にしたうえで、
+    // **関数の中で `request.auth` を必ず確認する**のが Firebase の標準構成
+    // (下の handler 冒頭で unauthenticated を投げている)。
+    // 既定値まかせにすると同じことが再発するので、明示的に書いて固定する。
+    invoker: "public",
+  },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "サインインが必要です。");
@@ -306,7 +320,15 @@ export const precomposeOutfit = onCall<{
   facePatternId: string | null;
   liveCaptureUrl: string | null;
 }>(
-  { region: FUNCTION_REGION, secrets: [geminiApiKey], timeoutSeconds: 120, memory: "512MiB" },
+  {
+    region: FUNCTION_REGION,
+    secrets: [geminiApiKey],
+    timeoutSeconds: 120,
+    memory: "512MiB",
+    // composeOutfitImage と同じ理由で明示する(そちらのコメント参照)。
+    // 今は付いているが、既定値まかせだと片方だけ落ちる事故が実際に起きた。
+    invoker: "public",
+  },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "サインインが必要です。");
@@ -365,8 +387,30 @@ async function patchCandidate(
   });
 }
 
+/**
+ * 見本の服の画像を置いてある公開サイトのオリジン。
+ *
+ * ⚠ **2026-08-05 に判明した「AI合成が一度も成功していなかった」原因のひとつ。**
+ * 見本の服は Next.js の `public/seed/` にあり、Firestore には
+ * `/seed/women/xxx.png` という**相対パス**で入っている。ブラウザはそのまま表示できるが、
+ * **サーバー(Cloud Functions)の `fetch` は絶対URLしか受け付けない**ため、
+ * `TypeError: Failed to parse URL` で即死していた。
+ * 実データを数えたところ closetItems 77件が**すべて**この形式だったので、
+ * 事実上あらゆるコーデで合成が失敗していた。
+ *
+ * 自分で撮った服は Storage の絶対URLになるので、そちらは元から問題ない。
+ */
+const PUBLIC_ASSET_ORIGIN =
+  process.env.PUBLIC_ASSET_ORIGIN || "https://my-clothes-three.vercel.app";
+
+/** 相対パスなら公開サイトのオリジンを補う。絶対URLはそのまま返す。 */
+function absoluteImageUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) return url;
+  return PUBLIC_ASSET_ORIGIN.replace(/\/$/, "") + (url.startsWith("/") ? url : `/${url}`);
+}
+
 async function fetchAsBase64(url: string): Promise<{ mimeType: string; data: string }> {
-  const res = await fetch(url);
+  const res = await fetch(absoluteImageUrl(url));
   if (!res.ok) throw new Error(`画像の取得に失敗しました: ${url}`);
   const mimeType = res.headers.get("content-type") ?? "image/jpeg";
   const buffer = Buffer.from(await res.arrayBuffer());
