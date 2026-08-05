@@ -25,6 +25,8 @@ import {
   seasonOfMonth,
   BODY_TYPES,
   WARDROBE_LABELS,
+  otherWardrobe,
+  wardrobeOfItem,
   type BodyType,
   type ClosetCategory,
   type ClosetItem,
@@ -60,10 +62,24 @@ const SORT_LABELS: { value: SortKey; label: string }[] = [
   { value: "dormant", label: "眠っている順" },
 ];
 
-/** 1ヶ月以上着ていない(または一度も着ていない)服の数。掘り起こしの入口にする。 */
-function countDormant(items: ClosetItem[]): number {
-  const monthAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  return items.filter((i) => (i.lastWornAt ?? 0) < monthAgo).length;
+/** これより長く着ていない服を「眠っている」とみなす。掘り起こしの入口にする。 */
+const DORMANT_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * クローゼットで表示する一式(メンズ / ウィメンズ / すべて)。
+ *
+ * 既定はプロフィールの「主に使う服」(`primaryWardrobe`)だが、**この画面で選び直したら
+ * その選択が優先され、端末に残る**(Kazさん指示 2026-08-05)。リロードしても他の画面へ
+ * 行って戻っても引き継がれる。サーバーに持たせていないのは、プロフィールの
+ * 「主に使う服」は2択作成などの既定値も兼ねる別物で、ここでの一時的な見せ方の切り替えと
+ * 混ぜたくないため。
+ */
+type WardrobeChoice = Wardrobe | "all";
+
+const CLOSET_WARDROBE_KEY = "mc.closetWardrobe.";
+
+function isWardrobeChoice(v: string | null): v is WardrobeChoice {
+  return v === "men" || v === "women" || v === "all";
 }
 
 export default function ClosetPage() {
@@ -81,28 +97,101 @@ export default function ClosetPage() {
   // 「アイテム / コーデ」の表示切り替え。コーデ=保存した服の組み合わせ。
   const [view, setView] = useState<"items" | "outfits">("items");
   const [savedOutfits, setSavedOutfits] = useState<SavedOutfit[] | null>(null);
+  // null = まだ端末の設定を読んでいない(= プロフィールの既定に従う)。
+  const [wardrobeChoice, setWardrobeChoice] = useState<WardrobeChoice | null>(null);
   const [editingOutfit, setEditingOutfit] = useState<SavedOutfit | null>(null);
   const [outfitName, setOutfitName] = useState("");
   const [ioNote, setIoNote] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  // 「眠っている服」の件数は読み込み時に数える。描画のたびに Date.now() を読むと、
-  // 再描画のたびに結果が変わりうる不安定な値になってしまうため。
-  const [dormantCount, setDormantCount] = useState(0);
+  // 「眠っている服」の基準時刻は読み込み時に一度だけ決める。描画のたびに Date.now() を
+  // 読むと、再描画のたびに結果が変わりうる不安定な値になってしまうため。
+  // 件数そのものは、表示中の一式に合わせて数え直す(下の useMemo)。
+  const [dormantBefore, setDormantBefore] = useState(0);
 
   useEffect(() => {
     if (!user) return;
     listClosetItems(user.uid).then((list) => {
       setItems(list);
-      setDormantCount(countDormant(list));
+      setDormantBefore(Date.now() - DORMANT_MS);
     });
     listSavedOutfits(user.uid).then(setSavedOutfits);
   }, [user]);
 
+  // 前回この画面で選んだ一式を復元する。effect の本体で同期に setState すると
+  // レンダリングが連鎖するので、マイクロタスクに逃がしてから反映する。
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      const stored = localStorage.getItem(CLOSET_WARDROBE_KEY + user.uid);
+      if (!cancelled && isWardrobeChoice(stored)) setWardrobeChoice(stored);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  // 選び直していなければプロフィールの「主に使う服」に従う。それも未設定なら全部出す。
+  const wardrobe: WardrobeChoice = wardrobeChoice ?? profile?.primaryWardrobe ?? "all";
+
+  function chooseWardrobe(next: WardrobeChoice) {
+    setWardrobeChoice(next);
+    if (user) localStorage.setItem(CLOSET_WARDROBE_KEY + user.uid, next);
+  }
+
+  /**
+   * 選んだ一式の服だけに絞ったもの。件数表示も絞り込みもすべてこれを基準にする
+   * (`items` のままだと「メンズ (4)」と書いてあるのに中身が違う、という食い違いが出る)。
+   *
+   * **メンズ/ウィメンズを指定していない服は、どちらを選んでいても残す。**
+   * 指定は任意項目なので、付け忘れた自分の服が消えるほうが困る。
+   */
+  const wardrobeItems = useMemo(() => {
+    if (!items) return null;
+    if (wardrobe === "all") return items;
+    return items.filter((i) => {
+      const w = wardrobeOfItem(i);
+      return w === null || w === wardrobe;
+    });
+  }, [items, wardrobe]);
+
+  /**
+   * 切り替えの並び。プロフィールで選んだほうを左に置く(そちらが既定なので)。
+   * 未設定ならウィメンズ→メンズの順。「すべて表示」は末尾に別途置く。
+   */
+  const wardrobeOrder: Wardrobe[] = profile?.primaryWardrobe
+    ? [profile.primaryWardrobe, otherWardrobe(profile.primaryWardrobe)]
+    : ["women", "men"];
+
+  /** 見出しなどに出す表示名。"all" のときに WARDROBE_LABELS を引けないので分けてある。 */
+  const wardrobeLabel = wardrobe === "all" ? "すべて" : WARDROBE_LABELS[wardrobe];
+
+  /** その一式を選んだときに出る件数。絞り込みと同じ数え方(指定なしも含む)にする。 */
+  function wardrobeCount(w: Wardrobe): number | null {
+    if (!items) return null;
+    return items.filter((i) => {
+      const kind = wardrobeOfItem(i);
+      return kind === null || kind === w;
+    }).length;
+  }
+
+  /** 「指定なし」の服があるか。あるときだけ、消えない理由を一言添える。 */
+  const hasUnspecified = useMemo(
+    () => (items ?? []).some((i) => wardrobeOfItem(i) === null),
+    [items]
+  );
+
+  /** 眠っている服の数。表示中の一式のぶんだけ数える。 */
+  const dormantCount = useMemo(() => {
+    if (!dormantBefore) return 0;
+    return (wardrobeItems ?? []).filter((i) => (i.lastWornAt ?? 0) < dormantBefore).length;
+  }, [wardrobeItems, dormantBefore]);
+
   const filtered = useMemo(() => {
-    if (!items) return [];
+    if (!wardrobeItems) return [];
     const q = search.trim().toLowerCase();
-    const list = items.filter((i) => {
+    const list = wardrobeItems.filter((i) => {
       if (category !== "all" && i.category !== category) return false;
       if (genre && !(i.genres ?? []).includes(genre)) return false;
       // 季節タグが空のアイテムは通年扱いで常に残す。登録直後に消えると混乱するため。
@@ -130,7 +219,7 @@ export default function ClosetPage() {
       sorted.sort((a, b) => Number(b.favorite ?? false) - Number(a.favorite ?? false));
     }
     return sorted;
-  }, [items, category, genre, season, search, sort]);
+  }, [wardrobeItems, category, genre, season, search, sort]);
 
 
   const thisSeason = seasonOfMonth(new Date().getMonth() + 1);
@@ -148,7 +237,18 @@ export default function ClosetPage() {
     if (!user) return;
     const list = await listClosetItems(user.uid);
     setItems(list);
-    setDormantCount(countDormant(list));
+    setDormantBefore(Date.now() - DORMANT_MS);
+  }
+
+  /**
+   * 見本の服を入れ直したあとの後始末。
+   *
+   * 入れた一式が表示中の一式と食い違うと、**入れたばかりの服が1着も出ない**ことになる
+   * (例: 表示をウィメンズにしたままメンズの見本を入れる)。入れた内容に表示を合わせる。
+   */
+  async function applySeedResult(style: WardrobeStyle) {
+    await reloadItems();
+    chooseWardrobe(style === "both" ? "all" : style);
   }
 
   /**
@@ -266,10 +366,34 @@ export default function ClosetPage() {
       />
 
       <div className="mx-auto max-w-lg px-4 pb-28 pt-4">
+        {/* どの一式を出すか。既定はプロフィールの「主に使う服」で、ここで選び直すと
+            その選択が端末に残る(リロードしても他の画面から戻っても引き継がれる)。
+            「すべて表示」は末尾に置く(Kazさん指示 2026-08-05)。 */}
+        {view === "items" && (
+          <div className="mb-3">
+            <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
+              {wardrobeOrder.map((w) => (
+                <Chip key={w} selected={wardrobe === w} onClick={() => chooseWardrobe(w)}>
+                  {WARDROBE_LABELS[w]}
+                  {wardrobeCount(w) !== null ? ` (${wardrobeCount(w)})` : ""}
+                </Chip>
+              ))}
+              <Chip selected={wardrobe === "all"} onClick={() => chooseWardrobe("all")}>
+                すべて表示{items ? ` (${items.length})` : ""}
+              </Chip>
+            </div>
+            {wardrobe !== "all" && hasUnspecified && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                メンズ・ウィメンズを指定していない服は、どちらを選んでも表示されます。
+              </p>
+            )}
+          </div>
+        )}
+
         {/* アイテム(1着ずつ)とコーデ(保存した組み合わせ)の切り替え。 */}
         <div className="mb-3 flex gap-2">
           <Chip selected={view === "items"} onClick={() => setView("items")}>
-            アイテム{items ? ` (${items.length})` : ""}
+            アイテム{wardrobeItems ? ` (${wardrobeItems.length})` : ""}
           </Chip>
           <Chip selected={view === "outfits"} onClick={() => setView("outfits")}>
             コーデ{savedOutfits ? ` (${savedOutfits.length})` : ""}
@@ -332,7 +456,7 @@ export default function ClosetPage() {
               最初から入っていたイラストを、実際の服の写真に差し替えました。
               下から選んで入れ直してください。自分で登録した服はそのまま残ります。
             </p>
-            <SeedClosetPicker uid={user.uid} onDone={reloadItems} />
+            <SeedClosetPicker uid={user.uid} onDone={applySeedResult} />
           </div>
         )}
 
@@ -429,10 +553,10 @@ export default function ClosetPage() {
             そのカテゴリの服がレールの上を流れる(Kazさん指示 2026-08-04)。 */}
         <div className="no-scrollbar -mx-4 mb-2.5 flex gap-2 overflow-x-auto px-4">
           <Chip selected={category === "all"} onClick={() => setCategory("all")}>
-            すべて{items ? ` (${items.length})` : ""}
+            すべて{wardrobeItems ? ` (${wardrobeItems.length})` : ""}
           </Chip>
           {CLOSET_CATEGORIES.map((c) => {
-            const count = (items ?? []).filter((i) => i.category === c.value).length;
+            const count = (wardrobeItems ?? []).filter((i) => i.category === c.value).length;
             if (count === 0 && category !== c.value) return null;
             return (
               <Chip key={c.value} selected={category === c.value} onClick={() => setCategory(c.value)}>
@@ -452,17 +576,29 @@ export default function ClosetPage() {
           <>
             <EmptyState
               icon={<IconCloset className="h-10 w-10" />}
-              title={items.length === 0 ? "クローゼットが空です" : "条件に合う服がありません"}
+              title={
+                items.length === 0
+                  ? "クローゼットが空です"
+                  : wardrobeItems && wardrobeItems.length === 0
+                    ? `${wardrobeLabel}の服はまだありません`
+                    : "条件に合う服がありません"
+              }
               description={
                 items.length === 0
                   ? "買った服を先に登録しておくと、毎朝の組み合わせ選びが一気に速くなります。"
-                  : "絞り込みを変えてみてください。"
+                  : wardrobeItems && wardrobeItems.length === 0
+                    ? "上の「すべて表示」を押すと、登録してある服がすべて出ます。"
+                    : "絞り込みを変えてみてください。"
               }
               action={
                 items.length === 0 ? (
                   <Link href="/closet/add">
                     <PrimaryButton full={false}>最初の1着を登録</PrimaryButton>
                   </Link>
+                ) : wardrobeItems && wardrobeItems.length === 0 ? (
+                  <PrimaryButton full={false} onClick={() => chooseWardrobe("all")}>
+                    すべて表示にする
+                  </PrimaryButton>
                 ) : undefined
               }
             />
@@ -472,7 +608,7 @@ export default function ClosetPage() {
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                   実際の服の写真を入れておけるので、自分の服を撮る前でも2択を試せます。
                 </p>
-                <SeedClosetPicker uid={user.uid} onDone={reloadItems} />
+                <SeedClosetPicker uid={user.uid} onDone={applySeedResult} />
               </div>
             )}
           </>
@@ -542,8 +678,8 @@ export default function ClosetPage() {
             </p>
             <SeedClosetPicker
               uid={user.uid}
-              onDone={async () => {
-                await reloadItems();
+              onDone={async (style) => {
+                await applySeedResult(style);
                 setSeedSheetOpen(false);
               }}
             />
@@ -561,7 +697,14 @@ export default function ClosetPage() {
  * だけしか投入しない。既にアカウントを持っている人には届かないので、ここから
  * いつでも選び直せるようにしている。
  */
-function SeedClosetPicker({ uid, onDone }: { uid: string; onDone: () => Promise<void> }) {
+function SeedClosetPicker({
+  uid,
+  onDone,
+}: {
+  uid: string;
+  /** 入れた内容を渡す。呼び出し元がクローゼットの表示をそれに合わせられるようにするため。 */
+  onDone: (style: WardrobeStyle) => Promise<void>;
+}) {
   const [style, setStyle] = useState<WardrobeStyle>("women");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -574,7 +717,7 @@ function SeedClosetPicker({ uid, onDone }: { uid: string; onDone: () => Promise<
       // 入れ直したら「主に使う服」もそれに合わせる。両方入れた人はウィメンズを主に
       // しておく(設定画面で変えられる)。
       await updateUserProfile(uid, { primaryWardrobe: style === "men" ? "men" : "women" });
-      await onDone();
+      await onDone(style);
     } catch (err) {
       setError(err instanceof Error ? err.message : "入れ替えに失敗しました。");
     } finally {
