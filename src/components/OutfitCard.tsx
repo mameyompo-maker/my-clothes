@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import type { BodyType, ClosetItem, FacePattern, OutfitCandidate } from "@/types/models";
+import { LookFigure } from "./LookFigure";
 import { IconSparkles } from "./icons";
 
 /**
@@ -57,51 +58,16 @@ export function OutfitCard({
     );
   }
 
+  // AI合成が無いときは「着ている姿」を組み上げて見せる。
+  // 以前は顔写真+服をタイル状に並べるだけだったが、それだと全身のコーデが伝わらない
+  // (Kazさん指摘 2026-08-06)。LookFigure は服の大小・丈・重ね順を再現する。
   return (
-    <div className={`relative overflow-hidden rounded-2xl bg-surface-muted ${className}`}>
-      <div className="absolute inset-0 flex flex-col">
-        {faceUrl && (
-          <div className="relative flex h-[46%] items-center justify-center bg-surface-strong/40 pt-3">
-            <div className="relative h-full w-auto" style={{ aspectRatio: "1 / 1" }}>
-              <Image
-                src={faceUrl}
-                alt="今日の顔"
-                fill
-                className="rounded-full border-2 border-background object-cover"
-                unoptimized
-              />
-            </div>
-          </div>
-        )}
-
-        <div className={`grid flex-1 gap-[3px] p-[3px] ${gridClassFor(outfitItems.length)}`}>
-          {outfitItems.map((item) => (
-            <div key={item.id} className="relative overflow-hidden rounded-lg bg-surface">
-              <Image src={item.imageUrl} alt={item.label} fill className="object-cover" unoptimized />
-            </div>
-          ))}
-          {outfitItems.length === 0 && (
-            <div className="flex items-center justify-center text-[11px] text-muted-foreground">
-              アイテム未選択
-            </div>
-          )}
-        </div>
-      </div>
-
-      {candidate.composeStatus === "pending" && (
-        <span className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
-          合成待ち
-        </span>
-      )}
-    </div>
+    <LookFigure
+      items={outfitItems}
+      faceUrl={faceUrl}
+      className={`rounded-2xl ${className}`}
+    />
   );
-}
-
-function gridClassFor(count: number): string {
-  if (count <= 1) return "grid-cols-1";
-  if (count === 2) return "grid-cols-2";
-  if (count <= 4) return "grid-cols-2";
-  return "grid-cols-3";
 }
 
 /**
