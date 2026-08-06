@@ -14,6 +14,19 @@ function functions() {
 // 友達招待(redeemInviteCode)はCloud Functions不要のFirestoreルールだけで完結するように
 // なったため、lib/firestore.ts 側に移した。ここにはBlazeプラン前提の機能だけを置く。
 
+/**
+ * AI合成を使うかどうかの切り替え。
+ *
+ * **合成は1枚あたり約12円かかり、2択1回で2枚ぶん(約24円)が自動で走る。**
+ * 先行合成は仕上げステップに入っただけで発火するので、投稿しなくても課金される。
+ * 使わない方針にするときは Vercel の環境変数に
+ * `NEXT_PUBLIC_AI_COMPOSE_ENABLED=false` を入れるだけで止まる(コード変更もデプロイも不要)。
+ *
+ * 止めても画面は壊れない。`OutfitCard` が `LookFigure`(AIを使わない全身コーデ表示)に
+ * 落ちるようになっていて、そちらだけで十分に成立する作りにしてある。
+ */
+export const isAiComposeEnabled = process.env.NEXT_PUBLIC_AI_COMPOSE_ENABLED !== "false";
+
 export interface ComposeOutfitImageInput {
   postId: string;
   candidateIndex: number;

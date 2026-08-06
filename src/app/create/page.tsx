@@ -17,7 +17,7 @@ import {
   updateUserProfile,
   uploadImage,
 } from "@/lib/firestore";
-import { composeOutfitImage, precomposeOutfit } from "@/lib/functions";
+import { composeOutfitImage, isAiComposeEnabled, precomposeOutfit } from "@/lib/functions";
 import { compressImage } from "@/lib/image";
 import { suggestOutfit } from "@/lib/recommend";
 import {
@@ -242,7 +242,9 @@ export default function CreatePostPage() {
   // 発火は仕上げステップ限定にしてある: 服選びの途中で発火すると、選び直すたびに
   // 使われない合成が走ってトークンを無駄にするため。ここなら組み合わせはほぼ確定している。
   useEffect(() => {
-    if (step !== "finish" || !user) return;
+    // AI合成を使わない設定のときは発火させない。ここは仕上げに入っただけで走るので、
+    // 止め忘れると投稿しなくても1回ぶん(約24円)が課金される。
+    if (!isAiComposeEnabled || step !== "finish" || !user) return;
     for (const d of drafts) {
       const sig = draftSignature(d);
       if (!sig || precomposeStarted.current.has(sig)) continue;
@@ -471,12 +473,14 @@ export default function CreatePostPage() {
       // 合成できない間は顔写真+服の写真をそのまま並べて表示する(OutfitCard)。
       // 先行合成が済んでいない候補だけ通常ルートで合成する。先行合成が処理中なら
       // サーバー側のキャッシュロックが待ち合わせるので、二重にGeminiを呼ぶことはない。
-      const pendingIndexes = candidates
-        .map((c, index) => (c.composeStatus === "pending" ? index : -1))
-        .filter((index) => index >= 0);
-      void Promise.allSettled(
-        pendingIndexes.map((index) => composeOutfitImage({ postId: post.id, candidateIndex: index }))
-      );
+      if (isAiComposeEnabled) {
+        const pendingIndexes = candidates
+          .map((c, index) => (c.composeStatus === "pending" ? index : -1))
+          .filter((index) => index >= 0);
+        void Promise.allSettled(
+          pendingIndexes.map((index) => composeOutfitImage({ postId: post.id, candidateIndex: index }))
+        );
+      }
 
       router.push("/vote");
     } catch (err) {
