@@ -107,7 +107,7 @@ function UpgradeContent() {
               <IconSparkles className="mx-auto mb-2 h-8 w-8 text-accent" />
               <p className="text-base font-bold text-accent">プレミアムをご利用中です</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                おまかせ提案と、2択の取り消しが回数制限なく使えます。ありがとうございます。
+                2択の取り消しと、みんなのコーデの値段表示が回数制限なく使えます。ありがとうございます。
               </p>
             </div>
             <SecondaryButton onClick={openPortal} disabled={busy}>
@@ -117,19 +117,17 @@ function UpgradeContent() {
         ) : (
           <>
             <div className="mb-6">
-              <h1 className="mb-2 text-xl font-bold tracking-tight">おまかせ提案はプレミアム機能です</h1>
+              <h1 className="mb-2 text-xl font-bold tracking-tight">プレミアムについて</h1>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                手持ちの服から自動でコーデを組む機能は、プレミアムでご利用いただけます。
-                それ以外の機能は今までどおり無料で使えます。
+                アプリの機能はほぼすべて無料で使えます。プレミアムは、回数の上限を外したい人向けの
+                任意のプランです。AIによる着用イメージの生成は、ご自身の Google AI Studio APIキーを
+                登録すれば無料プランのまま使えます。
               </p>
             </div>
 
             <section className="mb-5 rounded-3xl border border-border bg-surface p-5">
               <h2 className="mb-3 text-sm font-bold">プレミアムでできること</h2>
               <ul className="space-y-2.5">
-                <Benefit>おまかせで2択を自動生成する</Benefit>
-                <Benefit>主役の1着から残りを自動で組む</Benefit>
-                <Benefit>季節・好みのジャンル・着ていない期間をふまえた提案</Benefit>
                 <Benefit>今日の2択を何回でも取り消してやり直せる</Benefit>
                 <Benefit>みんなのコーデの値段を制限なく見られる</Benefit>
               </ul>
@@ -140,7 +138,8 @@ function UpgradeContent() {
               <ul className="space-y-2.5">
                 <Benefit>2択を作ってみんなに選んでもらう(1日1回)</Benefit>
                 <Benefit>今日の2択の取り消し(1日1回まで)</Benefit>
-                <Benefit>AIによる着用イメージの生成</Benefit>
+                <Benefit>おまかせでコーデを自動で組む(回数制限なし)</Benefit>
+                <Benefit>AIによる着用イメージの生成(ご自身のAPIキーで利用)</Benefit>
                 <Benefit>クローゼットの登録・タグ付け・絞り込み・値段の記録</Benefit>
                 <Benefit>みんなのコーデの値段を見る(1日1コーデまで)</Benefit>
                 <Benefit>全身写真の投稿、いいね、コメント、フォロー、DM</Benefit>
@@ -183,7 +182,7 @@ function UpgradeContent() {
 
         <div className="mt-6">
           <Link href="/create">
-            <SecondaryButton>手動でコーデを作る</SecondaryButton>
+            <SecondaryButton>コーデを作る</SecondaryButton>
           </Link>
         </div>
       </div>

@@ -500,6 +500,47 @@ export async function suggestUsersToFollow(
   return scored.map(({ profile, reason }) => ({ profile, reason }));
 }
 
+// ---------- 自分だけの秘密(Gemini APIキー) ----------
+
+/**
+ * AI合成に使う Google AI Studio の APIキー。
+ *
+ * **users ドキュメントには絶対に入れない。** users は「サインインしていれば誰でも読める」
+ * ルールなので、そこに置くと他の利用者全員に自分のキーが読まれる。
+ * userSecrets は本人だけが読み書きできる別コレクションにしてある。
+ */
+export interface UserSecret {
+  geminiApiKey?: string;
+  updatedAt?: number;
+}
+
+export async function getMyGeminiKey(uid: string): Promise<string | null> {
+  const database = requireDb();
+  const snap = await getDoc(doc(database, "userSecrets", uid));
+  if (!snap.exists()) return null;
+  return (snap.data() as UserSecret).geminiApiKey ?? null;
+}
+
+export async function setMyGeminiKey(uid: string, apiKey: string): Promise<void> {
+  const database = requireDb();
+  await setDoc(
+    doc(database, "userSecrets", uid),
+    { geminiApiKey: apiKey.trim(), updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+export async function clearMyGeminiKey(uid: string): Promise<void> {
+  const database = requireDb();
+  await setDoc(doc(database, "userSecrets", uid), { geminiApiKey: "", updatedAt: Date.now() }, { merge: true });
+}
+
+/** 画面に出す用の伏せ字。先頭4文字と末尾4文字だけ残す。 */
+export function maskApiKey(key: string): string {
+  if (key.length <= 10) return "••••••••";
+  return `${key.slice(0, 4)}••••••••${key.slice(-4)}`;
+}
+
 // ---------- Follows ----------
 
 export async function followUser(myUid: string, targetUid: string, actor?: UserProfile | null): Promise<void> {

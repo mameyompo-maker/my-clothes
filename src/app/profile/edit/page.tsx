@@ -1,9 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { updateAvatar, updateUserProfile } from "@/lib/firestore";
+import {
+  clearMyGeminiKey,
+  getMyGeminiKey,
+  maskApiKey,
+  setMyGeminiKey,
+  updateAvatar,
+  updateUserProfile,
+} from "@/lib/firestore";
+import { verifyGeminiKey } from "@/lib/functions";
 import { compressImage } from "@/lib/image";
 import {
   BODY_TYPES,
@@ -15,11 +23,21 @@ import {
   type StyleGenre,
   type Wardrobe,
 } from "@/types/models";
-import { ActionBar, Avatar, Chip, Field, IconButton, PrimaryButton, TopBar, inputClass } from "@/components/ui";
-import { IconCamera, IconChevronLeft } from "@/components/icons";
+import {
+  ActionBar,
+  Avatar,
+  Chip,
+  Field,
+  IconButton,
+  PrimaryButton,
+  SecondaryButton,
+  TopBar,
+  inputClass,
+} from "@/components/ui";
+import { IconCamera, IconCheck, IconChevronLeft, IconSparkles } from "@/components/icons";
 
 export default function EditProfilePage() {
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile, refreshGeminiKey } = useAuth();
   const router = useRouter();
 
   const [name, setName] = useState(profile?.name ?? "");
@@ -46,6 +64,75 @@ export default function EditProfilePage() {
   const [error, setError] = useState("");
   const [avatarBusy, setAvatarBusy] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // --- AI合成に使う自分の Google AI Studio APIキー。
+  // 保存先は userSecrets/{uid}(本人だけが読めるコレクション)。
+  // 画面には伏せ字しか出さず、入力欄に元の値を流し込むこともしない。
+  const [savedKeyMask, setSavedKeyMask] = useState<string | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyMessage, setKeyMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    getMyGeminiKey(user.uid)
+      .then((key) => {
+        if (!cancelled) setSavedKeyMask(key ? maskApiKey(key) : null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  async function handleSaveKey() {
+    const entered = keyInput.trim();
+    if (!user || !entered || keyBusy) return;
+    setKeyBusy(true);
+    setKeyMessage(null);
+    try {
+      await setMyGeminiKey(user.uid, entered);
+      setSavedKeyMask(maskApiKey(entered));
+      setKeyInput("");
+      await refreshGeminiKey();
+      // 保存しただけでは使えるか分からないので、そのまま実際に叩いて確かめる。
+      const result = await verifyGeminiKey();
+      setKeyMessage({ ok: result.ok, text: result.message });
+    } catch (err) {
+      setKeyMessage({ ok: false, text: err instanceof Error ? err.message : "保存に失敗しました。" });
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  async function handleVerifyKey() {
+    if (keyBusy) return;
+    setKeyBusy(true);
+    setKeyMessage(null);
+    try {
+      const result = await verifyGeminiKey();
+      setKeyMessage({ ok: result.ok, text: result.message });
+    } catch (err) {
+      setKeyMessage({ ok: false, text: err instanceof Error ? err.message : "確認できませんでした。" });
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  async function handleClearKey() {
+    if (!user || keyBusy) return;
+    setKeyBusy(true);
+    setKeyMessage(null);
+    try {
+      await clearMyGeminiKey(user.uid);
+      setSavedKeyMask(null);
+      setKeyInput("");
+      await refreshGeminiKey();
+    } finally {
+      setKeyBusy(false);
+    }
+  }
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -285,6 +372,82 @@ export default function EditProfilePage() {
         >
           <input type="time" value={reminder} onChange={(e) => setReminder(e.target.value)} className={inputClass} />
         </Field>
+
+        <section className="mb-6 rounded-3xl border border-border bg-surface p-5">
+          <h2 className="mb-1 flex items-center gap-1.5 text-sm font-bold">
+            <IconSparkles className="h-4 w-4 text-accent" /> AI合成(着ている姿の生成)
+          </h2>
+          <p className="mb-4 text-[11px] leading-relaxed text-muted-foreground">
+            自分の顔写真と選んだ服から「実際に着ている姿」を作る機能です。
+            <strong className="font-bold">ご自身の Google AI Studio APIキー</strong>で動きます。
+            キーを登録しなくてもアプリは全部使えます(その場合は服を並べた表示になります)。
+            <br />
+            生成にかかる費用はご自身の Google アカウントに請求されます(1枚あたり十数円程度)。
+          </p>
+
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mb-4 inline-block text-xs font-bold text-accent underline"
+          >
+            Google AI Studio でAPIキーを取得する →
+          </a>
+
+          {savedKeyMask ? (
+            <div className="mb-3 rounded-2xl border border-border bg-surface-muted p-3">
+              <p className="flex items-center gap-1.5 text-xs font-bold">
+                <IconCheck className="h-4 w-4 text-accent" /> 登録済み
+              </p>
+              <p className="mt-1 font-mono text-[11px] text-muted-foreground">{savedKeyMask}</p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={handleVerifyKey}
+                  disabled={keyBusy}
+                  className="tappable rounded-full border border-border-strong bg-surface px-4 py-2 text-xs font-bold disabled:opacity-50"
+                >
+                  {keyBusy ? "確認中…" : "使えるか確認"}
+                </button>
+                <button
+                  onClick={handleClearKey}
+                  disabled={keyBusy}
+                  className="tappable rounded-full px-4 py-2 text-xs font-bold text-muted-foreground disabled:opacity-50"
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <Field label={savedKeyMask ? "別のキーに入れ替える" : "APIキー"}>
+            <input
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="AIza..."
+              className={`${inputClass} font-mono`}
+            />
+          </Field>
+
+          <SecondaryButton onClick={handleSaveKey} disabled={!keyInput.trim() || keyBusy}>
+            {keyBusy ? "保存しています…" : savedKeyMask ? "入れ替えて確認する" : "保存して確認する"}
+          </SecondaryButton>
+
+          {keyMessage && (
+            <p
+              className={`mt-3 text-[11px] leading-relaxed ${keyMessage.ok ? "text-accent" : "text-danger"}`}
+            >
+              {keyMessage.text}
+            </p>
+          )}
+
+          <p className="mt-4 text-[10px] leading-relaxed text-muted-foreground">
+            キーはあなただけが読める場所に保存され、他の利用者からは見えません。
+            画面にも伏せ字でしか表示しません。
+          </p>
+        </section>
 
         {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       </div>

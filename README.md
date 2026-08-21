@@ -7,7 +7,7 @@
 - **クローゼット**: トップス/ボトムス/アウター/シューズ/アクセサリーの5カテゴリーで服を撮影・登録。初回は普遍的な服10種類がサンプルとして自動で入る。
 - **顔パターン**: 髪型・メイク違いの顔写真を最大5枚登録し、毎日の投稿時にその場で撮る代わりに選ぶだけでも使える。
 - **コーデ投稿**: クローゼットから服を選んで候補A/Bを作成し、今日の気分・予定を添えて投稿。共有する友達を選べる。
-- **AI合成(任意)**: 服の写真+顔写真を Gemini の画像編集モデルに渡し、実際に着用しているような1枚の合成画像を生成。**有効化しなくてもアプリは動く**(未合成の間は服の写真をそのまま並べて表示する)。
+- **AI合成(任意)**: 服の写真+顔写真を Gemini の画像編集モデルに渡し、実際に着用しているような1枚の合成画像を生成。**利用者が自分の Google AI Studio APIキーを登録したときだけ動く**(未登録でもアプリは全部使え、その場合は服を並べた表示になる)。
 - **投票**: 友達は候補A/Bを横並び2択タップで投票。投票すると票数が見える。
 - **招待制の友達関係**: 招待コード/リンクで友達を追加。投稿は招待コードで繋がった友達の中から選んで共有。
 
@@ -15,7 +15,7 @@
 
 - Next.js 16 (App Router, TypeScript, Tailwind CSS v4) — Web PWA
 - Firebase (Authentication / Firestore / Storage)
-- Firebase Cloud Functions + Gemini API(画像編集モデル)によるコーデ合成 — **任意。使う場合のみ追加の課金設定が必要**
+- Firebase Cloud Functions + Gemini API(画像編集モデル)によるコーデ合成 — **任意。各利用者が自分のAPIキーを登録して使う(費用も各自負担)**
 
 友達招待は Cloud Functions を使わず、Firestore のセキュリティルールだけで「招待コードを知っている人が自分自身を相手の友達リストに追加する」処理を完結させている(`src/lib/firestore.ts` の `redeemInviteCode`)。
 
@@ -87,28 +87,20 @@ firebase deploy --only firestore:rules,storage
 `Network: http://192.168.x.x:3000` のアドレスをそのまま使える。離れた相手と試したくなったら、後述の
 「Vercelで公開する」を行う(これも無料)。
 
-## AI合成を有効化する(任意)
+## AI合成について(運営側の設定は不要)
 
-服+顔写真を1枚のコーデ写真に合成したくなったら、ここから先を行う。**Gemini
-の画像生成には無料枠が一切なく**(2026-08時点で公式ドキュメントで確認済み)、課金設定は
-すでに前述のBlazeアップグレードで済んでいるはずなので、ここでは主にAPIキーの取得が中心。
+**2026-08-06 以降、合成は利用者それぞれが自分の Google AI Studio APIキーで行う。**
+運営が `GEMINI_API_KEY` をシークレットに登録する必要はもう無い(登録しても使われない)。
+利用者はアプリのプロフィール編集画面からキーを登録する。詳しくは後述の
+「AI合成は利用者それぞれのAPIキーで動く」を参照。
 
-1. [Google AI Studio](https://aistudio.google.com/) でGemini APIキーを取得。既存の汎用キーと
-   同じものを使い回すのではなく新規に発行し、紐づけ先のGoogle Cloudプロジェクトは
-   `my-clothes-46c81`(実際のプロジェクトIDに読み替え)を選ぶと、課金・利用状況がこのアプリの
-   Firebaseリソースとまとまって把握しやすい。
-2. デフォルトでは `functions/src/index.ts` の `GEMINI_IMAGE_MODEL` に標準グレードの
-   `gemini-3.1-flash-image` を設定済み。コストを抑えたい場合は `gemini-3.1-flash-lite-image`
-   (安価)に、画質を上げたい場合は `gemini-3-pro-image`(高品質・高コスト)に変更できる。
-   モデル名は変わりやすいので、デプロイ前に https://ai.google.dev/gemini-api/docs/models で
-   最新の識別子を確認すること。
-3. シークレットを登録してデプロイ:
+使うモデルだけはコード側の設定。`functions/src/index.ts` の `GEMINI_IMAGE_MODEL` が
+標準グレードの `gemini-3.1-flash-image`。安くするなら `gemini-3.1-flash-lite-image`、
+画質を上げるなら `gemini-3-pro-image`。モデル名は変わりやすいので、変更前に
+https://ai.google.dev/gemini-api/docs/models で最新の識別子を確認すること。
 
 ```bash
-firebase functions:secrets:set GEMINI_API_KEY
-cd functions
-npm install
-cd ..
+cd functions && npm install && cd ..
 firebase deploy --only functions
 ```
 
@@ -124,20 +116,26 @@ Vercelの無料枠(Hobbyプラン)で公開できる。課金は発生しない�
    **Authentication → Settings → 承認済みドメイン** に追加する
    (これを忘れるとVercel上のGoogleサインインが失敗する)。
 
-### AI合成の現状(2026-08-03 時点)
+### AI合成は利用者それぞれのAPIキーで動く(2026-08-06 変更)
 
-**動作する。** 過去に一度も動いていなかった不具合を解消し、クレジット追加後に実機で画像生成を確認済み。
-経緯は以下のとおり(同じ問題を疑うときの手がかりとして残す)。
+**運営のキーは使っていない。** 各利用者がプロフィール編集画面で自分の
+[Google AI Studio](https://aistudio.google.com/apikey) のAPIキーを登録し、そのキーで合成が走る。
+生成費用は各自の Google アカウントに請求される。
 
-- 過去に一度も動いていなかった原因は2つ。①クライアントが `asia-northeast1`、関数が `us-central1` に
-  デプロイされていてエンドポイントが存在しなかった ②Secret Manager の `GEMINI_API_KEY` が壊れた値
-  (32文字・`AIza`始まりでない・空白混入)で `API_KEY_INVALID` だった。いずれも修正済み。
-- 修正後も一時 `429 RESOURCE_EXHAUSTED: Your prepayment credits are depleted` で止まっていた。
-  Gemini API は AI Studio 側の**前払いクレジット**で動いており、Firebase の Blaze 課金とは別勘定。
-  https://ai.studio/projects でクレジットを追加して解消済み。再び429が出たらここを疑うこと。
+- キーの保存先は Firestore の **`userSecrets/{uid}`**。ルールで**本人しか読み書きできない**。
+  `users` は「サインインしていれば誰でも読める」ルールなので、**そちらには絶対に置かない**。
+- Cloud Functions が Admin SDK でキーを読み、呼び出した本人のキーで Gemini を叩く。
+  未登録なら「プロフィール編集画面から登録してください」と返す。
+- プロフィール編集画面の「使えるか確認」は `verifyGeminiKey` 関数が保存済みのキーで実際にAPIを叩く。
+  **キーの中身はクライアントに返さない。**
 - 費用の目安: `gemini-3.1-flash-image` は1枚約$0.067(約10円)。2択1回で2枚生成するので約20円。
-- **合成が無くてもアプリは完結する。** `src/components/OutfitCard.tsx` が、合成画像が無い場合に
-  撮影した顔写真と選んだ服をボード状に並べて表示する。顔写真が無駄にならないようにするための作り。
+- **キーを登録しなくてもアプリは全部使える。** その場合は `LookFigure` / `OutfitCard` が
+  顔写真と選んだ服を並べて表示する。
+
+過去に「一度も合成が成功しない」状態が続いた原因(同じ症状を疑うときの手がかり):
+クライアントと関数のリージョン不一致、Secret Manager のキーが壊れていた、
+見本画像が相対パスでサーバーから取得できなかった、Cloud Run の invoker 権限が空だった、の4つ。
+詳細は `HANDOVER.md` の「今回のセッションで直したバグ」を参照。
 
 ### おすすめ提案について
 

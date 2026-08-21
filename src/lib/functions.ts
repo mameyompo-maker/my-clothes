@@ -15,13 +15,14 @@ function functions() {
 // なったため、lib/firestore.ts 側に移した。ここにはBlazeプラン前提の機能だけを置く。
 
 /**
- * AI合成を使うかどうかの切り替え。
+ * AI合成の全体スイッチ(運営側の非常停止用)。
  *
- * **合成は1枚あたり約12円かかり、2択1回で2枚ぶん(約24円)が自動で走る。**
- * 先行合成は仕上げステップに入っただけで発火するので、投稿しなくても課金される。
- * 使わない方針にするときは Vercel の環境変数に
- * `NEXT_PUBLIC_AI_COMPOSE_ENABLED=false` を入れるだけで止まる(コード変更もデプロイも不要)。
+ * 2026-08-05 以降、合成の費用は**利用者それぞれが自分の Google AI Studio APIキーで**負担する。
+ * 運営のキーは使っていないので、運営に請求が来ることはない。したがって普段は true のままでよい。
+ * 実際に合成が走るかどうかは「本人がキーを登録しているか」で決まる(下の hasKey 判定)。
  *
+ * それでも止めたくなったとき用に、Vercel の環境変数
+ * `NEXT_PUBLIC_AI_COMPOSE_ENABLED=false` で一括停止できる余地は残してある。
  * 止めても画面は壊れない。`OutfitCard` が `LookFigure`(AIを使わない全身コーデ表示)に
  * 落ちるようになっていて、そちらだけで十分に成立する作りにしてある。
  */
@@ -62,6 +63,19 @@ export interface PrecomposeOutfitInput {
 export async function precomposeOutfit(input: PrecomposeOutfitInput): Promise<ComposeOutfitImageResult> {
   const call = httpsCallable<PrecomposeOutfitInput, ComposeOutfitImageResult>(functions(), "precomposeOutfit");
   const result = await call(input);
+  return result.data;
+}
+
+/**
+ * 登録済みのAPIキーが実際に使えるかをサーバー側で確認する。
+ * キーの中身はクライアントに返さない(サーバーが保存済みの値を読んで叩くだけ)。
+ */
+export async function verifyGeminiKey(): Promise<{ ok: boolean; message: string }> {
+  const call = httpsCallable<Record<string, never>, { ok: boolean; message: string }>(
+    functions(),
+    "verifyGeminiKey"
+  );
+  const result = await call({});
   return result.data;
 }
 

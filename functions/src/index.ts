@@ -3,7 +3,6 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore, type DocumentReference } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { defineSecret } from "firebase-functions/params";
 
 initializeApp();
 const db = getFirestore();
@@ -12,7 +11,29 @@ const db = getFirestore();
 // firebase deploy の対象に含める。
 export { createBillingPortalSession, createCheckoutSession, stripeWebhook } from "./billing.js";
 
-const geminiApiKey = defineSecret("GEMINI_API_KEY");
+// ⚠ 2026-08-05 方針変更: **AI合成は各利用者が自分の Google AI Studio APIキーで行う。**
+// 以前は運営(Kazさん)の GEMINI_API_KEY をシークレットに置き、全員ぶんの費用を
+// 運営が負担していた。今はプロフィールから各自が登録したキーを userSecrets/{uid} から
+// 読んで使う。運営側のキーは一切使わない。
+//
+// userSecrets はルール上「本人しか読めない」コレクションで、ここでは Admin SDK が
+// ルールを迂回して読む。users ドキュメントに置くと他の利用者全員に読まれるので絶対に置かない。
+interface UserSecretDoc {
+  geminiApiKey?: string;
+}
+
+/** 本人が登録した Gemini APIキー。未登録なら分かりやすい理由で失敗させる。 */
+async function requireUserGeminiKey(uid: string): Promise<string> {
+  const snap = await db.collection("userSecrets").doc(uid).get();
+  const key = snap.exists ? (snap.data() as UserSecretDoc).geminiApiKey : undefined;
+  if (!key) {
+    throw new HttpsError(
+      "failed-precondition",
+      "AI合成にはご自身の Google AI Studio APIキーが必要です。プロフィール編集画面から登録してください。"
+    );
+  }
+  return key;
+}
 
 // クライアント側 (src/lib/functions.ts の CALLABLE_REGION) と必ず同じ値にすること。
 // 食い違うと callable がどこにも存在しないエンドポイントを叩き、AI合成が無言で全滅する。
@@ -53,16 +74,10 @@ interface ComposedCacheDoc {
 /** pending がこの時間を超えて放置されていたら、前の呼び出しが死んだとみなして引き取る。 */
 const PENDING_STALE_MS = 150_000;
 
-/**
- * 1日あたりの新規Gemini呼び出し回数の上限(キャッシュヒットは消費しない)。
- * 先行合成は投稿前でも呼べるため、「2択は1日1回」の制限だけでは合成回数を縛れない。
- * 1枚約10円なので、この上限が1日あたりの最大コスト(約200円/人)になる。
- */
-const DAILY_COMPOSE_LIMIT = 20;
-
-function jstDateString(): string {
-  return new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
-}
+// 以前あった1日あたりの合成回数上限(DAILY_COMPOSE_LIMIT)は撤去した。
+// あれは運営のキーを全員で使っていたときに、運営の請求額を抑えるための制限だった。
+// 各自が自分のキーで叩く今は、費用も上限も本人の Google 側の設定に属するため、
+// アプリが勝手に回数を絞る理由がない。無駄打ちの防止は下のキャッシュが担う。
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,21 +93,6 @@ function cacheKeyFor(uid: string, itemImageUrls: string[], faceImageUrl: string,
   return createHash("sha256").update(payload).digest("hex").slice(0, 40);
 }
 
-/** 1日の合成回数を1消費する。上限に達していたら resource-exhausted を投げる。 */
-async function acquireComposeSlot(uid: string): Promise<void> {
-  const ref = db.collection("composeQuota").doc(uid);
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    const today = jstDateString();
-    const data = snap.exists ? (snap.data() as { date?: string; count?: number }) : null;
-    const count = data?.date === today ? (data.count ?? 0) : 0;
-    if (count >= DAILY_COMPOSE_LIMIT) {
-      throw new HttpsError("resource-exhausted", "今日のAI合成の回数上限に達しました。明日また使えます。");
-    }
-    tx.set(ref, { date: today, count: count + 1 });
-  });
-}
-
 /**
  * キャッシュを見てから合成する本体。全ての合成はここを通すこと。
  *
@@ -104,7 +104,8 @@ async function composeCached(
   uid: string,
   itemImageUrls: string[],
   faceImageUrl: string,
-  personalHint: string
+  personalHint: string,
+  apiKey: string
 ): Promise<string> {
   const key = cacheKeyFor(uid, itemImageUrls, faceImageUrl, personalHint);
   const ref = db.collection("composedCache").doc(key);
@@ -144,8 +145,7 @@ async function composeCached(
   }
 
   try {
-    await acquireComposeSlot(uid);
-    const url = await composeWithGemini(itemImageUrls, faceImageUrl, uid, key, personalHint);
+    const url = await composeWithGemini(itemImageUrls, faceImageUrl, uid, key, personalHint, apiKey);
     await ref.set({ status: "ready", url, ownerUid: uid, updatedAt: Date.now() }, { merge: true });
     return url;
   } catch (err) {
@@ -246,7 +246,6 @@ function buildPersonalHint(profile: UserProfileDoc | null): string {
 export const composeOutfitImage = onCall<{ postId: string; candidateIndex: number }>(
   {
     region: FUNCTION_REGION,
-    secrets: [geminiApiKey],
     timeoutSeconds: 120,
     memory: "512MiB",
     // ⚠ **2026-08-05 に判明した、AI合成が動かなかったもうひとつの原因。**
@@ -299,7 +298,14 @@ export const composeOutfitImage = onCall<{ postId: string; candidateIndex: numbe
         profile = null;
       }
 
-      const composedImageUrl = await composeCached(uid, itemImageUrls, faceImageUrl, buildPersonalHint(profile));
+      const apiKey = await requireUserGeminiKey(uid);
+      const composedImageUrl = await composeCached(
+        uid,
+        itemImageUrls,
+        faceImageUrl,
+        buildPersonalHint(profile),
+        apiKey
+      );
       await patchCandidate(postRef, candidateIndex, { composedImageUrl, composeStatus: "ready" });
       return { composedImageUrl };
     } catch (err) {
@@ -322,7 +328,6 @@ export const precomposeOutfit = onCall<{
 }>(
   {
     region: FUNCTION_REGION,
-    secrets: [geminiApiKey],
     timeoutSeconds: 120,
     memory: "512MiB",
     // composeOutfitImage と同じ理由で明示する(そちらのコメント参照)。
@@ -368,7 +373,14 @@ export const precomposeOutfit = onCall<{
       profile = null;
     }
 
-    const composedImageUrl = await composeCached(uid, itemImageUrls, faceImageUrl, buildPersonalHint(profile));
+    const apiKey = await requireUserGeminiKey(uid);
+    const composedImageUrl = await composeCached(
+      uid,
+      itemImageUrls,
+      faceImageUrl,
+      buildPersonalHint(profile),
+      apiKey
+    );
     return { composedImageUrl };
   }
 );
@@ -422,7 +434,8 @@ async function composeWithGemini(
   faceImageUrl: string,
   ownerUid: string,
   cacheKey: string,
-  personalHint = ""
+  personalHint: string,
+  apiKey: string
 ): Promise<string> {
   const images = await Promise.all([faceImageUrl, ...itemImageUrls].map(fetchAsBase64));
 
@@ -438,7 +451,7 @@ async function composeWithGemini(
   ];
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${geminiApiKey.value()}`,
+    `https://generativelanguage.googleapis.com/v1/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -472,3 +485,56 @@ async function composeWithGemini(
   await file.makePublic();
   return `https://storage.googleapis.com/${bucket.name}/${path}`;
 }
+
+// ---------- verifyGeminiKey ----------
+// プロフィールで登録したキーがちゃんと使えるかを確かめる。
+//
+// ブラウザから直接 Gemini を叩いて確かめる手もあるが、その場合 CORS の可否に結果が
+// 左右されるうえ、キーをクライアントに読み戻す必要が出る。ここはサーバー側で
+// 保存済みのキーを使って確認し、**キーの中身をクライアントへ返さない**。
+export const verifyGeminiKey = onCall(
+  {
+    region: FUNCTION_REGION,
+    timeoutSeconds: 30,
+    // composeOutfitImage と同じ理由(callable は Firebase SDK 側で認証を運ぶ)。
+    invoker: "public",
+  },
+  async (request): Promise<{ ok: boolean; message: string }> => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "サインインが必要です。");
+
+    let apiKey: string;
+    try {
+      apiKey = await requireUserGeminiKey(uid);
+    } catch {
+      return { ok: false, message: "APIキーが登録されていません。" };
+    }
+
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}?key=${apiKey}`
+      );
+      if (res.ok) return { ok: true, message: "APIキーを確認しました。AI合成が使えます。" };
+
+      const body = await res.text();
+      if (res.status === 400 && body.includes("API_KEY_INVALID")) {
+        return { ok: false, message: "APIキーが正しくありません。もう一度コピーし直してください。" };
+      }
+      if (res.status === 403) {
+        return {
+          ok: false,
+          message: "このキーでは Gemini API を利用できません。Google AI Studio で有効になっているか確認してください。",
+        };
+      }
+      if (res.status === 404) {
+        return {
+          ok: false,
+          message: `画像生成モデル(${GEMINI_IMAGE_MODEL})にアクセスできません。キーに紐づくプロジェクトを確認してください。`,
+        };
+      }
+      return { ok: false, message: `確認できませんでした(HTTP ${res.status})。` };
+    } catch {
+      return { ok: false, message: "Google に接続できませんでした。時間をおいてお試しください。" };
+    }
+  }
+);

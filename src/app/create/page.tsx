@@ -92,7 +92,7 @@ interface QuickCombo {
 }
 
 export default function CreatePostPage() {
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile, hasGeminiKey } = useAuth();
   const router = useRouter();
 
   const [closetItems, setClosetItems] = useState<ClosetItem[]>([]);
@@ -242,9 +242,9 @@ export default function CreatePostPage() {
   // 発火は仕上げステップ限定にしてある: 服選びの途中で発火すると、選び直すたびに
   // 使われない合成が走ってトークンを無駄にするため。ここなら組み合わせはほぼ確定している。
   useEffect(() => {
-    // AI合成を使わない設定のときは発火させない。ここは仕上げに入っただけで走るので、
-    // 止め忘れると投稿しなくても1回ぶん(約24円)が課金される。
-    if (!isAiComposeEnabled || step !== "finish" || !user) return;
+    // AI合成は本人が自分のAPIキーを登録しているときだけ走らせる。
+    // 未登録で叩いても関数側で failed-precondition になるだけなので、発火させない。
+    if (!isAiComposeEnabled || !hasGeminiKey || step !== "finish" || !user) return;
     for (const d of drafts) {
       const sig = draftSignature(d);
       if (!sig || precomposeStarted.current.has(sig)) continue;
@@ -266,7 +266,7 @@ export default function CreatePostPage() {
       })();
     }
     // drafts の変更(顔の選び直しなど)でも再評価する。署名が変わった候補だけ新たに発火する。
-  }, [step, drafts, user]);
+  }, [step, drafts, user, hasGeminiKey]);
 
   /** 今日の2択を取り消して、もう一度作れる状態に戻す。 */
   async function handleUndoToday() {
@@ -469,11 +469,11 @@ export default function CreatePostPage() {
         outfitVisibility
       );
 
-      // AI合成は課金状況に左右されるので、失敗しても投稿は成立させる。
+      // AI合成は本人のAPIキーで走る。失敗しても投稿は成立させる。
       // 合成できない間は顔写真+服の写真をそのまま並べて表示する(OutfitCard)。
       // 先行合成が済んでいない候補だけ通常ルートで合成する。先行合成が処理中なら
       // サーバー側のキャッシュロックが待ち合わせるので、二重にGeminiを呼ぶことはない。
-      if (isAiComposeEnabled) {
+      if (isAiComposeEnabled && hasGeminiKey) {
         const pendingIndexes = candidates
           .map((c, index) => (c.composeStatus === "pending" ? index : -1))
           .filter((index) => index >= 0);
@@ -647,38 +647,23 @@ export default function CreatePostPage() {
               </button>
             ))}
 
-            {premium ? (
-              <button
-                onClick={() => {
-                  setBuildMode("topDown");
-                  applySuggestion(0);
-                  applySuggestion(1);
-                  setStep("finish");
-                }}
-                className="tappable flex w-full items-center gap-3 rounded-3xl border border-accent/40 bg-accent-soft p-5 text-left"
-              >
-                <IconSparkles className="h-6 w-6 shrink-0 text-accent" />
-                <div>
-                  <span className="block text-base font-bold text-accent">おまかせで2択を作る</span>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    季節と好みと着ていない期間から、2パターン自動で組みます
-                  </p>
-                </div>
-              </button>
-            ) : (
-              <Link
-                href="/upgrade"
-                className="tappable flex w-full items-center gap-3 rounded-3xl border border-border bg-surface p-5 text-left"
-              >
-                <IconSparkles className="h-6 w-6 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <span className="block text-base font-bold">おまかせで2択を作る</span>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    自動で組む機能はプレミアム向けです。上の2つは無料で使えます
-                  </p>
-                </div>
-              </Link>
-            )}
+            <button
+              onClick={() => {
+                setBuildMode("topDown");
+                applySuggestion(0);
+                applySuggestion(1);
+                setStep("finish");
+              }}
+              className="tappable flex w-full items-center gap-3 rounded-3xl border border-accent/40 bg-accent-soft p-5 text-left"
+            >
+              <IconSparkles className="h-6 w-6 shrink-0 text-accent" />
+              <div>
+                <span className="block text-base font-bold text-accent">おまかせで2択を作る</span>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  季節と好みと着ていない期間から、2パターン自動で組みます
+                </p>
+              </div>
+            </button>
           </div>
         </div>
       </>
@@ -821,18 +806,12 @@ export default function CreatePostPage() {
           <div className="mb-4 min-h-[54px] rounded-2xl border border-border bg-surface p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[11px] font-semibold text-muted-foreground">選んだアイテム</span>
-              {premium ? (
-                <button
-                  onClick={() => applySuggestion(slot)}
-                  className="flex items-center gap-1 text-[11px] font-bold text-accent"
-                >
-                  <IconSparkles className="h-3.5 w-3.5" /> おまかせ
-                </button>
-              ) : (
-                <Link href="/upgrade" className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground">
-                  <IconSparkles className="h-3.5 w-3.5" /> おまかせ
-                </Link>
-              )}
+              <button
+                onClick={() => applySuggestion(slot)}
+                className="flex items-center gap-1 text-[11px] font-bold text-accent"
+              >
+                <IconSparkles className="h-3.5 w-3.5" /> おまかせ
+              </button>
             </div>
             {selectedItems(slot).length === 0 ? (
               <p className="text-xs text-muted-foreground">
@@ -895,20 +874,13 @@ export default function CreatePostPage() {
           {buildMode === "hero" && !slotReady(slot) ? (
             <>
               <p className="mb-3 text-xs font-semibold text-muted-foreground">
-                {premium
-                  ? "主役を1着えらぶと、残りは自動で提案します"
-                  : "今日いちばん着たい1着をえらんでください"}
+                主役を1着えらぶと、残りは自動で提案します
               </p>
               {filterRows}
               <HangerRail
                 items={itemsForPicker}
                 selectedIds={Object.values(draft.itemIdsByCategory) as string[]}
-                onSelect={(item) => {
-                  // 残りを自動で埋めるのはプレミアム機能。無料では主役だけ置いて、
-                  // あとはカテゴリー別に自分で選んでもらう。
-                  if (premium) applySuggestion(slot, item);
-                  else toggleItem(item);
-                }}
+                onSelect={(item) => applySuggestion(slot, item)}
               />
             </>
           ) : (
@@ -1038,6 +1010,20 @@ export default function CreatePostPage() {
           <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
             登録すると投稿カードに一緒に表示されます。AI合成が使えるときは、この顔で着用イメージも作ります。
           </p>
+
+          {!hasGeminiKey && (
+            <Link
+              href="/profile/edit"
+              className="tappable mb-3 flex items-center gap-2 rounded-2xl border border-border bg-surface p-3"
+            >
+              <IconSparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="text-[11px] leading-relaxed text-muted-foreground">
+                <strong className="font-bold text-foreground">着ている姿をAIで作る</strong>には、
+                プロフィール編集画面でご自身の Google AI Studio APIキーを登録してください。
+                登録しなくても、このまま服を並べた表示で投稿できます。
+              </span>
+            </Link>
+          )}
 
           <div className="mb-2 flex gap-2">
             {([0, 1] as Slot[]).map((s) => (

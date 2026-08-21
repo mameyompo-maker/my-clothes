@@ -60,6 +60,16 @@ service cloud.firestore {
             || request.resource.data.followerCount == resource.data.followerCount - 1);
     }
 
+    // userSecrets: 各自の Google AI Studio APIキーを置く場所。
+    //
+    // **users ドキュメントに入れてはいけない。** users は `allow read: if isSignedIn()`
+    // なので、そこに書くとサインインした他人全員に自分のAPIキーが読めてしまう。
+    // ここは本人だけが読み書きできる独立コレクションにし、
+    // Cloud Functions は Admin SDK 経由(ルールを迂回)で読む。
+    match /userSecrets/{uid} {
+      allow read, write: if isSignedIn() && me() == uid;
+    }
+
     // notifications: 受信箱。行為者(いいねを押した人など)が相手の箱に直接書く。
     // Cloud Functions を挟まずに済ませるかわり、書ける中身をここで縛る。
     match /notifications/{recipientUid}/items/{itemId} {
