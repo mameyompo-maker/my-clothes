@@ -78,7 +78,10 @@
   --color-success: var(--success);
   --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* 等幅は APIキーの表示(プロフィール編集)だけで使う。そこ1箇所のために
+     Webフォントを1ファミリー丸ごと配信するのは割に合わないので、端末に必ず
+     入っている等幅を使う。見た目はほぼ変わらず、初回の読み込みだけが軽くなる。 */
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 body {

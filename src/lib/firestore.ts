@@ -20,8 +20,7 @@ import {
   where,
   type Unsubscribe,
 } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { db, storage } from "./firebase";
+import { db, loadStorage } from "./firebase";
 import {
   blockId,
   followId,
@@ -62,11 +61,6 @@ const POST_LIFETIME_MS = 24 * 60 * 60 * 1000;
 function requireDb() {
   if (!db) throw new Error("Firebaseが未設定です。.env.local を確認してください。");
   return db;
-}
-
-function requireStorage() {
-  if (!storage) throw new Error("Firebaseが未設定です。.env.local を確認してください。");
-  return storage;
 }
 
 /**
@@ -644,7 +638,13 @@ export async function listFollowerUids(myUid: string): Promise<string[]> {
 const IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 export async function uploadImage(path: string, file: Blob): Promise<string> {
-  const bucket = requireStorage();
+  // Storage SDK はここでだけ必要。静的 import に戻すと、写真を扱わない画面にまで
+  // SDK が相乗りする(理由は lib/firebase.ts の loadStorage のコメントを参照)。
+  // 2つの動的 import は同じチャンクを指すので、往復は1回で済む。
+  const [{ getDownloadURL, ref, uploadBytes }, bucket] = await Promise.all([
+    import("firebase/storage"),
+    loadStorage(),
+  ]);
   const storageRef = ref(bucket, path);
   await uploadBytes(storageRef, file, { cacheControl: IMAGE_CACHE_CONTROL });
   return getDownloadURL(storageRef);

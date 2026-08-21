@@ -794,6 +794,39 @@ collectionGroup クエリには適用されない**(Firestoreの仕様)。再帰
   (`prepareUpload`。本人がキャプションを書いている間に終わる)。本体とサムネは
   `ImageBitmap` を1回だけ作って2回描き分ける(デコードが一番重いので2回やらない)
 
+### ⑤ 初回に落ちてくる量(2026-08-22 追加)
+
+①〜④は「往復回数」の話。ここは別の層で、**最初の1回に何バイト落ちてくるか**。
+測り方は `.next/server/app/<route>.html` が参照しているチャンクを足すだけ
+(2回目以降は `/_next/static/` が immutable キャッシュなので0バイト。効くのは初回と、
+友達が初めて開くとき)。
+
+- **Storage SDK を全ページから外した(-33KB)**。`lib/firestore.ts` が先頭で
+  `firebase/storage` を静的 import していたため、`AuthProvider` → root layout と
+  連鎖して**写真を1枚も扱わない画面(ホーム・2択・DM・カレンダー)にまで**乗っていた。
+  実際に使うのは `uploadImage` ただ1つなので動的 import にした
+  (`lib/firebase.ts` の `loadStorage`)。**静的 import に戻さないこと。**
+- **同梱画像を再圧縮(632KB → 285KB、-55%)**。`public/seed/` の26着と
+  `public/icons/` のPWAアイコン。中身はイラスト調で色数が少ないのに RGBA の
+  フルカラーPNGだったので、パレットPNGに入れ替えた(sharp の
+  `png({ palette: true, quality: 90, effort: 10 })`)。3倍に拡大しても差が分からない。
+  **拡張子もファイル名も変えていない**——既存ユーザーの Firestore には
+  `/seed/men/white-shirt.png` という文字列が保存済みなので、`.webp` に変えると
+  既存のクローゼットが全部リンク切れになる。**同じ理由で、今後もここは改名しないこと。**
+- **等幅Webフォントをやめた(-69KB)**。`Geist_Mono` はプロフィール編集画面の
+  APIキー表示2箇所でしか使っていなかった。1ファミリー丸ごと配信する価値がないので
+  `--font-mono` を端末標準の等幅に変えた(`globals.css`)。本文の `Geist` は残してある。
+
+結果、ホーム(/feed)の初回は **JS 1359KB(gzip 405KB)+ フォント74KB + 画像289KB**。
+
+**JSはこれ以上ほとんど削れない。** 内訳は Firebase の auth+firestore が約650KB、
+react-dom が約250KB、Next のランタイムが残り。firestore を `firebase/firestore/lite` に
+すれば激減するが、**`onSnapshot` が無くなる**ので2択の投票・DM・通知の即時反映が
+全部死ぬ。割に合わないので採らない。
+なお `lib/firestore.ts`(60KB)が共通チャンクに丸ごと入っているのは
+**問題ではない**——どの実画面でも使うので、1つにまとめて共有・キャッシュさせるのが
+正解。細かく分けると逆にリクエストが増える。分割しようとしないこと。
+
 ## 4.12 公式アカウントのプレビュー(2026-08-05 追加。Kazさん依頼)
 
 **フォローが5人以下**(`PREVIEW_FOLLOW_THRESHOLD`)のあいだ、公式アカウントのコーデと
