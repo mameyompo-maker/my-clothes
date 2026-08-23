@@ -97,3 +97,22 @@ export async function createBillingPortalSession(): Promise<string> {
   const result = await call({});
   return result.data.url;
 }
+
+export interface SuggestedCandidate {
+  itemIds: string[];
+  label: string;
+  reason: string;
+}
+
+/**
+ * Claude に今日の2択を考えてもらう。**画像は作らない**——返ってくるのは
+ * 「この服とこの服」という組み合わせだけで、絵にするのは従来どおり AI合成の担当。
+ */
+export async function suggestOutfitPair(): Promise<SuggestedCandidate[]> {
+  const call = httpsCallable<Record<string, never>, { candidates: SuggestedCandidate[] }>(
+    functions(),
+    "suggestOutfitPair"
+  );
+  const result = await call({});
+  return result.data.candidates;
+}

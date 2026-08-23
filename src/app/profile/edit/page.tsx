@@ -5,8 +5,11 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
   clearMyAiKey,
+  clearMyStylistKey,
   getMyAiKey,
+  getMyStylistKey,
   setMyAiKey,
+  setMyStylistKey,
   updateAvatar,
   updateUserProfile,
 } from "@/lib/firestore";
@@ -42,6 +45,9 @@ import {
   ApiKeyIntro,
   NoKeyNotice,
   SavedKeyBadge,
+  StylistKeyField,
+  StylistKeyHelp,
+  StylistKeyIntro,
 } from "@/components/ApiKeySetup";
 
 export default function EditProfilePage() {
@@ -77,6 +83,11 @@ export default function EditProfilePage() {
   // 保存先は userSecrets/{uid}(本人だけが読めるコレクション)。
   // 画面には伏せ字しか出さず、入力欄に元の値を流し込むこともしない。
   const [savedKey, setSavedKey] = useState<{ mask: string; providerLabel: string } | null>(null);
+  // コーデを考える役(Claude)。AI合成とは別のキー。
+  const [stylistMask, setStylistMask] = useState<string | null>(null);
+  const [stylistInput, setStylistInput] = useState("");
+  const [stylistBusy, setStylistBusy] = useState(false);
+  const [stylistMessage, setStylistMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyMessage, setKeyMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -94,10 +105,49 @@ export default function EditProfilePage() {
         );
       })
       .catch(() => {});
+    getMyStylistKey(user.uid)
+      .then((key) => {
+        if (!cancelled) setStylistMask(key ? maskApiKey(key) : null);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [user]);
+
+  async function handleSaveStylistKey() {
+    const entered = stylistInput.trim();
+    if (!user || !entered || stylistBusy) return;
+    setStylistBusy(true);
+    setStylistMessage(null);
+    try {
+      const ok = await setMyStylistKey(user.uid, entered);
+      if (!ok) {
+        setStylistMessage({ ok: false, text: "「sk-ant-」で始まる Claude のキーを貼り付けてください。" });
+        return;
+      }
+      setStylistMask(maskApiKey(entered));
+      setStylistInput("");
+      setStylistMessage({ ok: true, text: "登録しました。コーデ作成画面で「AIに考えてもらう」が使えます。" });
+    } catch (err) {
+      setStylistMessage({ ok: false, text: err instanceof Error ? err.message : "保存に失敗しました。" });
+    } finally {
+      setStylistBusy(false);
+    }
+  }
+
+  async function handleClearStylistKey() {
+    if (!user || stylistBusy) return;
+    setStylistBusy(true);
+    setStylistMessage(null);
+    try {
+      await clearMyStylistKey(user.uid);
+      setStylistMask(null);
+      setStylistInput("");
+    } finally {
+      setStylistBusy(false);
+    }
+  }
 
   async function handleSaveKey() {
     const entered = keyInput.trim();
@@ -450,6 +500,56 @@ export default function EditProfilePage() {
             キーはあなただけが読める場所に保存され、他の利用者からは見えません。
             画面にも伏せ字でしか表示しません。
           </p>
+        </section>
+
+        <section className="mb-6 rounded-3xl border border-border bg-surface p-5">
+          <ApiKeyHeading>コーデを考えてもらう(AIスタイリスト)</ApiKeyHeading>
+          <div className="mt-1 mb-4">
+            <StylistKeyIntro />
+          </div>
+
+          {stylistMask ? (
+            <>
+              <SavedKeyBadge mask={stylistMask} providerLabel="Anthropic (Claude)" />
+              <div className="mt-3 mb-4">
+                <button
+                  onClick={handleClearStylistKey}
+                  disabled={stylistBusy}
+                  className="tappable rounded-full px-4 py-2 text-xs font-bold text-muted-foreground disabled:opacity-50"
+                >
+                  削除
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="mb-4 rounded-2xl border border-border bg-surface-muted p-3">
+              <p className="text-xs font-bold">登録しなくても使えます</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                未登録の場合は、これまでどおり自分で服を選ぶか、季節と好みで選ぶ「おまかせ」が使えます。
+                こちらはAIに考えてもらいたいときだけの機能です。
+              </p>
+            </div>
+          )}
+
+          <div className="mb-4">
+            <StylistKeyHelp />
+          </div>
+
+          <Field label={stylistMask ? "別のキーに入れ替える" : "Claude のAPIキー"}>
+            <StylistKeyField value={stylistInput} onChange={setStylistInput} />
+          </Field>
+
+          <SecondaryButton onClick={handleSaveStylistKey} disabled={!stylistInput.trim() || stylistBusy}>
+            {stylistBusy ? "保存しています…" : stylistMask ? "入れ替える" : "保存する"}
+          </SecondaryButton>
+
+          {stylistMessage && (
+            <p
+              className={`mt-3 text-[11px] leading-relaxed ${stylistMessage.ok ? "text-accent" : "text-danger"}`}
+            >
+              {stylistMessage.text}
+            </p>
+          )}
         </section>
 
         {error && <p className="mb-3 text-sm text-danger">{error}</p>}

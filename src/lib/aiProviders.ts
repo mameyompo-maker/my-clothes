@@ -66,11 +66,39 @@ export function providerInfo(provider: AiProvider): AiProviderInfo {
  */
 export function detectAiProvider(apiKey: string): AiProvider | null {
   const key = apiKey.trim();
+  // ⚠ Claude のキーは "sk-ant-" で始まる。OpenAI の "sk-" が前方一致で先に当たるので、
+  //   ここで先に弾かないと、Claudeのキーを画像生成欄に貼った人が OpenAI 扱いになり、
+  //   毎回わけの分からない認証エラーで合成が失敗する。
+  if (key.startsWith(STYLIST_PROVIDER.keyPrefix)) return null;
   for (const p of AI_PROVIDERS) {
     if (key.startsWith(p.keyPrefix)) return p.value;
   }
   return null;
 }
+
+/** 画像生成用の欄に Claude のキーが貼られたか。案内の文言を変えるために使う。 */
+export function looksLikeStylistKey(apiKey: string): boolean {
+  return apiKey.trim().startsWith(STYLIST_PROVIDER.keyPrefix);
+}
+
+/**
+ * コーデを考える役(Anthropic / Claude)。
+ *
+ * **画像は作れない。** Claude は画像を読めるが生成・編集はできないので、AI合成の
+ * 提供元一覧(AI_PROVIDERS)には入れない。役割が違うので保存先のフィールドも別。
+ */
+export const STYLIST_PROVIDER = {
+  label: "Anthropic (Claude)",
+  keyPrefix: "sk-ant-",
+  consoleUrl: "https://console.anthropic.com/settings/keys",
+  steps: [
+    "上のリンクを開いて、Anthropic のアカウントでログインします。",
+    "「Create Key」を押します。名前は何でも構いません(例: My Clothes)。",
+    "「sk-ant-」で始まる文字列が出るのでコピーします。この画面を閉じると二度と表示されません。",
+    "下の欄に貼り付けて保存します。",
+  ],
+  cost: "あらかじめ Billing でクレジットを購入しておく必要があります。目安は1回の提案で10円前後(手持ちの服が多いほど少し上がります)。",
+};
 
 /** 画面に出す用の伏せ字。先頭4文字と末尾4文字だけ残す。 */
 export function maskApiKey(key: string): string {

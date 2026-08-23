@@ -21,7 +21,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db, loadStorage } from "./firebase";
-import { detectAiProvider, type AiProvider } from "./aiProviders";
+import { detectAiProvider, STYLIST_PROVIDER, type AiProvider } from "./aiProviders";
 import {
   blockId,
   followId,
@@ -510,6 +510,11 @@ export async function suggestUsersToFollow(
 export interface UserSecret {
   geminiApiKey?: string;
   provider?: AiProvider;
+  /**
+   * コーデを考える役(Claude)のキー。**画像生成用とは別のフィールド**。
+   * Claude は画像を作れないので、同じ欄にまとめると貼った人の合成が必ず失敗する。
+   */
+  anthropicApiKey?: string;
   updatedAt?: number;
 }
 
@@ -543,6 +548,31 @@ export async function setMyAiKey(uid: string, apiKey: string): Promise<AiProvide
     { merge: true }
   );
   return provider;
+}
+
+export async function getMyStylistKey(uid: string): Promise<string | null> {
+  const database = requireDb();
+  const snap = await getDoc(doc(database, "userSecrets", uid));
+  if (!snap.exists()) return null;
+  return (snap.data() as UserSecret).anthropicApiKey?.trim() || null;
+}
+
+export async function setMyStylistKey(uid: string, apiKey: string): Promise<boolean> {
+  const database = requireDb();
+  const trimmed = apiKey.trim();
+  // Claude のキーでなければ保存しない(貼り間違いをそのまま残さない)。
+  if (!trimmed.startsWith(STYLIST_PROVIDER.keyPrefix)) return false;
+  await setDoc(
+    doc(database, "userSecrets", uid),
+    { anthropicApiKey: trimmed, updatedAt: Date.now() },
+    { merge: true }
+  );
+  return true;
+}
+
+export async function clearMyStylistKey(uid: string): Promise<void> {
+  const database = requireDb();
+  await setDoc(doc(database, "userSecrets", uid), { anthropicApiKey: "", updatedAt: Date.now() }, { merge: true });
 }
 
 export async function clearMyAiKey(uid: string): Promise<void> {

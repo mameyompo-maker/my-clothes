@@ -3,6 +3,7 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore, type DocumentReference } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import Anthropic from "@anthropic-ai/sdk";
 
 initializeApp();
 const db = getFirestore();
@@ -689,3 +690,223 @@ async function verifyOpenAIKey(apiKey: string): Promise<{ ok: boolean; message: 
   }
   return { ok: false, message: `確認できませんでした(HTTP ${res.status})。` };
 }
+
+// ---------- suggestOutfitPair(Claudeに2択のコーデを考えてもらう) ----------
+//
+// 2026-08-23 追加(Kazさん依頼)。**Claudeは画像を作れない**ので、AI合成とは役割が違う。
+// ここでやるのは「クローゼットの中から今日の2択の組み合わせを考える」ところまでで、
+// 出来上がった組み合わせを絵にするのは従来どおり Gemini / OpenAI の担当。
+//
+// キーは userSecrets/{uid}.anthropicApiKey に別フィールドで持つ。画像生成用の
+// geminiApiKey とは用途が違うので、同じ欄に混ぜない(混ぜると、Claudeのキーを
+// 貼った人の合成が必ず失敗する)。
+
+/** 判断の質がそのまま提案の質になるので、既定は最上位モデル。 */
+const STYLIST_MODEL = process.env.ANTHROPIC_STYLIST_MODEL || "claude-opus-5";
+
+interface StylistSecretDoc {
+  anthropicApiKey?: string;
+}
+
+async function requireStylistKey(uid: string): Promise<string> {
+  const snap = await db.collection("userSecrets").doc(uid).get();
+  const key = snap.exists ? (snap.data() as StylistSecretDoc).anthropicApiKey?.trim() : undefined;
+  if (!key) {
+    throw new HttpsError(
+      "failed-precondition",
+      "コーデの提案には Anthropic のAPIキーが必要です。プロフィール編集画面から登録してください。"
+    );
+  }
+  return key;
+}
+
+interface ClosetItemFull {
+  id: string;
+  category: string;
+  label: string;
+  brand?: string;
+  color?: string;
+  genres?: string[];
+  seasons?: string[];
+  lastWornAt?: number | null;
+}
+
+/**
+ * 返してほしい形。**配列の要素数は指定できない**(JSON Schema の minItems/maxItems は
+ * 構造化出力では未対応)ので、「ちょうど2案」は指示文の側で伝える。
+ */
+const SUGGESTION_SCHEMA = {
+  type: "object",
+  properties: {
+    candidates: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          itemIds: { type: "array", items: { type: "string" } },
+          label: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["itemIds", "label", "reason"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["candidates"],
+  additionalProperties: false,
+} as const;
+
+interface SuggestedCandidate {
+  itemIds: string[];
+  label: string;
+  reason: string;
+}
+
+/** 今の季節。提案の前提になるので必ず渡す。 */
+function currentSeasonLabel(): string {
+  const month = new Date().getMonth() + 1;
+  if (month <= 2 || month === 12) return "冬";
+  if (month <= 5) return "春";
+  if (month <= 8) return "夏";
+  return "秋";
+}
+
+function describeCloset(items: ClosetItemFull[]): string {
+  return items
+    .map((it) => {
+      const parts = [`id=${it.id}`, `種類=${it.category}`, `名前=${it.label}`];
+      if (it.color) parts.push(`色=${it.color}`);
+      if (it.brand) parts.push(`ブランド=${it.brand}`);
+      if (it.genres?.length) parts.push(`ジャンル=${it.genres.join("/")}`);
+      if (it.seasons?.length) parts.push(`季節=${it.seasons.join("/")}`);
+      if (it.lastWornAt) {
+        const days = Math.floor((Date.now() - it.lastWornAt) / 86_400_000);
+        parts.push(`最後に着てから${days}日`);
+      }
+      return `- ${parts.join(" / ")}`;
+    })
+    .join("\n");
+}
+
+function describeProfile(profile: UserProfileDoc | null): string {
+  if (!profile) return "(登録なし)";
+  const lines: string[] = [];
+  if (typeof profile.height === "number" && profile.height > 0) lines.push(`身長 約${profile.height}cm`);
+  if (profile.bodyType && profile.bodyType !== "unknown") lines.push(`骨格タイプ ${profile.bodyType}`);
+  if (profile.personalColor && profile.personalColor !== "unknown") {
+    lines.push(`パーソナルカラー ${profile.personalColor}`);
+  }
+  if (profile.favoriteGenres?.length) lines.push(`好きなジャンル ${profile.favoriteGenres.join("/")}`);
+  return lines.length > 0 ? lines.join(" / ") : "(登録なし)";
+}
+
+export const suggestOutfitPair = onCall(
+  {
+    region: FUNCTION_REGION,
+    timeoutSeconds: 120,
+    // 他の callable と同じ理由(認証は Firebase SDK 側が運ぶ)。
+    invoker: "public",
+  },
+  async (request): Promise<{ candidates: SuggestedCandidate[] }> => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "サインインが必要です。");
+
+    const apiKey = await requireStylistKey(uid);
+
+    const [itemsSnap, userSnap] = await Promise.all([
+      db.collection("closetItems").where("ownerUid", "==", uid).limit(80).get(),
+      db.collection("users").doc(uid).get(),
+    ]);
+
+    const items: ClosetItemFull[] = itemsSnap.docs.map((d) => {
+      const data = d.data() as Partial<ClosetItemFull>;
+      return {
+        id: d.id,
+        category: data.category ?? "tops",
+        label: data.label ?? "服",
+        brand: data.brand,
+        color: data.color,
+        genres: data.genres,
+        seasons: data.seasons,
+        lastWornAt: data.lastWornAt ?? null,
+      };
+    });
+    if (items.length < 2) {
+      throw new HttpsError("failed-precondition", "クローゼットの服が少なすぎます。何着か登録してから試してください。");
+    }
+    const profile = userSnap.exists ? (userSnap.data() as UserProfileDoc) : null;
+
+    const prompt = [
+      "あなたは相手の手持ちの服だけでコーデを組むスタイリストです。",
+      "",
+      `# 今の季節\n${currentSeasonLabel()}`,
+      "",
+      `# 本人のプロフィール\n${describeProfile(profile)}`,
+      "",
+      `# 手持ちの服(この中からしか選べません)\n${describeCloset(items)}`,
+      "",
+      "# お願い",
+      "今日の「どっちにしよう」を決めるための2択を作ってください。**ちょうど2案**です。",
+      "",
+      "守ってほしいこと:",
+      "- itemIds には、上のリストにある id をそのまま使ってください。リストに無い id は絶対に作らないでください。",
+      "- 1案につきトップスとボトムスは必ず1点ずつ入れてください(ワンピースがある場合はそれ1点でも構いません)。",
+      "  アウター・靴・小物は、季節と全体のまとまりを見て必要なら足してください。",
+      "- 2案は**はっきり違う方向性**にしてください。色だけ違う似た組み合わせは2択の意味がありません。",
+      "- label は10文字程度でその日の気分が分かる名前(例:きれいめ通学、ゆるっと休日)。",
+      "- reason は40〜80文字で、なぜその組み合わせなのかを本人に語りかける調子で。",
+      "  難しい専門用語は使わず、迷っている人の背中を押す一言にしてください。",
+    ].join("\n");
+
+    let message;
+    try {
+      const client = new Anthropic({ apiKey });
+      message = await client.messages.create({
+        model: STYLIST_MODEL,
+        max_tokens: 16000,
+        // 服選びは長考する種類の仕事ではない。thinking を切るより effort を下げるほうが
+        // 安全(切ると出力にタグが混ざることがある)。
+        output_config: { effort: "low", format: { type: "json_schema", schema: SUGGESTION_SCHEMA } },
+        messages: [{ role: "user", content: prompt }],
+      });
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 401) throw new HttpsError("failed-precondition", "Anthropic のAPIキーが正しくありません。");
+      if (status === 429) throw new HttpsError("resource-exhausted", "利用が集中しています。少し時間をおいてお試しください。");
+      throw new HttpsError("internal", err instanceof Error ? err.message : "コーデの提案に失敗しました。");
+    }
+
+    // 断られた場合は content が空か途中までになる。先頭を無条件に読まない。
+    if (message.stop_reason === "refusal") {
+      throw new HttpsError("internal", "この内容には回答できませんでした。");
+    }
+    const textBlock = message.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      throw new HttpsError("internal", "提案を受け取れませんでした。");
+    }
+
+    let parsed: { candidates?: SuggestedCandidate[] };
+    try {
+      parsed = JSON.parse(textBlock.text) as { candidates?: SuggestedCandidate[] };
+    } catch {
+      throw new HttpsError("internal", "提案の形式が読み取れませんでした。もう一度お試しください。");
+    }
+
+    // 存在しない服のidが混ざっていたら落とす。画面側はidを信じて描画するので、
+    // ここを通さないと「選んだはずの服が出てこない」不具合になる。
+    const known = new Set(items.map((it) => it.id));
+    const candidates = (parsed.candidates ?? [])
+      .map((c) => ({
+        itemIds: (c.itemIds ?? []).filter((id) => known.has(id)),
+        label: (c.label ?? "").slice(0, 20),
+        reason: (c.reason ?? "").slice(0, 200),
+      }))
+      .filter((c) => c.itemIds.length > 0)
+      .slice(0, 2);
+
+    if (candidates.length < 2) {
+      throw new HttpsError("internal", "2案そろいませんでした。もう一度お試しください。");
+    }
+    return { candidates };
+  }
+);

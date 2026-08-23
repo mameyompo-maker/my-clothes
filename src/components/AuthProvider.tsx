@@ -6,6 +6,7 @@ import { auth, googleAuthProvider, isFirebaseConfigured } from "@/lib/firebase";
 import {
   ensureUserProfile,
   getMyAiKey,
+  getMyStylistKey,
   getUserProfile,
   getUserProfileFromCache,
   listBlockedByUids,
@@ -41,6 +42,8 @@ interface AuthContextValue {
    * キーそのものはここには持たない。必要になるのはサーバー側だけなので。
    */
   hasAiKey: boolean;
+  /** コーデを考える役(Claude)のキーを登録済みか。AI合成とは別の機能。 */
+  hasStylistKey: boolean;
   refreshAiKey: () => Promise<void>;
   /**
    * 自分が「いいね」「保存」した投稿ID。
@@ -80,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
   const [reactions, setReactions] = useState<"loading" | "ready" | "unavailable">("loading");
   const [hasAiKey, setHasAiKey] = useState(false);
+  const [hasStylistKey, setHasStylistKey] = useState(false);
   const uidRef = useRef<string | null>(null);
 
   const applyHidden = useCallback((list: string[]) => {
@@ -175,13 +179,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshAiKey = useCallback(async () => {
     if (!user) {
       setHasAiKey(false);
+      setHasStylistKey(false);
       return;
     }
     try {
-      setHasAiKey(Boolean(await getMyAiKey(user.uid)));
+      // 同じ userSecrets ドキュメントを2回読むが、2回目は永続キャッシュから返るので
+      // 往復は増えない。読み方を1本にまとめるより、呼び出し側が素直になる。
+      const [ai, stylist] = await Promise.all([getMyAiKey(user.uid), getMyStylistKey(user.uid)]);
+      setHasAiKey(Boolean(ai));
+      setHasStylistKey(Boolean(stylist));
     } catch {
       // 読めなくても致命的ではない。未登録として扱い、合成を発火させないだけ。
       setHasAiKey(false);
+      setHasStylistKey(false);
     }
   }, [user]);
 
@@ -228,6 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       followingUids,
       refreshFollowing,
       hasAiKey,
+      hasStylistKey,
       refreshAiKey,
       likedPostIds,
       savedPostIds,
@@ -238,7 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // signIn/signOut/refresh* は毎回作り直されるが、依存に入れると値が毎回変わって
     // 下流の useEffect を無駄に走らせる。実体は state を読むだけなので除外している。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, profile, loading, hiddenUids, followingUids, likedPostIds, savedPostIds, reactions, refreshFollowing, hasAiKey, refreshAiKey, setLikedLocal, setSavedLocal]
+    [user, profile, loading, hiddenUids, followingUids, likedPostIds, savedPostIds, reactions, refreshFollowing, hasAiKey, hasStylistKey, refreshAiKey, setLikedLocal, setSavedLocal]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

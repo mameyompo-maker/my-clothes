@@ -893,6 +893,47 @@ Google 側は以前から実データで成功を確認済み。**OpenAI 側は 
 ため未検証**(公式ドキュメントの仕様どおりに実装してある)。誰かが OpenAI のキーで
 試したら、結果をここに追記すること。
 
+## 4.14 AIスタイリスト(Claude。2026-08-23。Kazさん依頼)
+
+**Claudeは画像を生成できない。** 画像を読むことはできるが、作る・編集する機能がAPIに無い
+(公式ヘルプで明言)。だから Claude は AI合成の提供元一覧には**入れない**。
+代わりに「クローゼットの中から今日の2択の組み合わせを考える」役をやらせている。
+出来上がった組み合わせを絵にするのは、従来どおり Gemini / OpenAI の担当。
+
+### ⛔ `sk-ant-` は `sk-` に先に当たる
+OpenAI のキーは `sk-`、Claude のキーは `sk-ant-`。前方一致の順番を間違えると、
+**Claudeのキーを貼った人が OpenAI 扱いになり、合成が毎回わけの分からない認証エラーで落ちる。**
+`detectAiProvider`(`src/lib/aiProviders.ts`)は `sk-ant-` を**先に**弾いている。
+`functions/src/index.ts` の `detectProvider` も同じ順序にすること。
+
+### 保存先も別フィールド
+`userSecrets/{uid}` の中で、画像生成用は `geminiApiKey`、Claude用は `anthropicApiKey`。
+**同じ欄にまとめないこと。** まとめると、Claudeのキーしか持っていない人の合成が必ず失敗する。
+
+### サーバー側(`suggestOutfitPair`)
+- 公式SDK `@anthropic-ai/sdk` を使う(生の fetch は使わない)。
+- モデルは `claude-opus-5`。判断の質がそのまま提案の質になるので既定は最上位。
+  `functions/.env` の `ANTHROPIC_STYLIST_MODEL` で上書きできる。
+- 構造化出力(`output_config.format` の json_schema)で受け取る。
+  ⚠ **配列の要素数は schema で指定できない**(minItems/maxItems は未対応)ので、
+  「ちょうど2案」は指示文の側で伝えている。
+- thinking は切らず `effort: "low"` にしている。Opus 5 は thinking を切ると
+  出力に `<thinking>` タグが混ざることがあるため、切るより effort を下げるほうが安全。
+- `stop_reason === "refusal"` を先に見る。断られると content が空になるので、
+  先頭を無条件に読むと落ちる。
+- 返ってきた itemIds は**必ず実在確認してから使う**。存在しないidを画面がそのまま
+  描こうとすると「選んだはずの服が出てこない」不具合になる。
+
+### 費用
+Opus 5 は入力 $5 / 出力 $25(100万トークンあたり)。手持ち80着ぶんの情報で
+入力約5千トークン、出力は thinking 込みで約1.5千トークン。
+5000÷1,000,000×5 = $0.025、1500÷1,000,000×25 = $0.0375 → 合計 約$0.06(**10円前後**)。
+
+### 検証状況
+lint / tsc / build / functions ビルドは通り、デプロイ済み。
+**実データでの動作は未確認**(Anthropicのキーが手元に無いため)。
+誰かが試したら結果をここに追記すること。
+
 ## 5. 実装していないもの(と理由)
 
 | 機能 | 理由 |

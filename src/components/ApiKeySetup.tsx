@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { AI_PROVIDERS, detectAiProvider, providerInfo, type AiProvider } from "@/lib/aiProviders";
+import {
+  AI_PROVIDERS,
+  detectAiProvider,
+  looksLikeStylistKey,
+  providerInfo,
+  STYLIST_PROVIDER,
+  type AiProvider,
+} from "@/lib/aiProviders";
 import { inputClass } from "./ui";
 import { IconCheck, IconSparkles } from "./icons";
 
@@ -79,7 +86,9 @@ export function ApiKeyField({
         >
           {provider
             ? `${providerInfo(provider).label} のキーとして登録します。`
-            : "見覚えのない形式です。「AIza」または「sk-」で始まる文字列を貼り付けてください。"}
+            : looksLikeStylistKey(trimmed)
+              ? "これは Claude のキーですね。Claude は画像を作れないので、下の「コーデを考えてもらう」の欄に入れてください。"
+              : "見覚えのない形式です。「AIza」または「sk-」で始まる文字列を貼り付けてください。"}
         </p>
       )}
     </div>
@@ -168,5 +177,87 @@ export function ApiKeyHeading({ children }: { children: React.ReactNode }) {
     <h2 className="flex items-center gap-1.5 text-sm font-bold">
       <IconSparkles className="h-4 w-4 text-accent" /> {children}
     </h2>
+  );
+}
+
+/**
+ * コーデを考える役(Claude)の欄。AI合成とは**別の機能**なので、見出しから
+ * 「画像は作らない」ことが伝わるようにしてある。ここを曖昧にすると、
+ * 画像が出ないことを不具合だと思われる。
+ */
+export function StylistKeyField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const trimmed = value.trim();
+  const looksRight = trimmed.startsWith(STYLIST_PROVIDER.keyPrefix);
+
+  return (
+    <div>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        type="password"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="sk-ant-..."
+        className={`${inputClass} font-mono`}
+      />
+      {trimmed.length > 0 && (
+        <p className={`mt-1.5 text-[11px] leading-relaxed ${looksRight ? "text-accent" : "text-muted-foreground"}`}>
+          {looksRight
+            ? "Claude のキーとして登録します。"
+            : "「sk-ant-」で始まる文字列を貼り付けてください。"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function StylistKeyIntro() {
+  return (
+    <p className="text-[11px] leading-relaxed text-muted-foreground">
+      クローゼットの中から<strong className="font-bold">今日の2択の組み合わせをAIに考えてもらう</strong>機能です。
+      色・季節・骨格・好きなジャンルを踏まえて、方向性の違う2案を出します。
+      <br />
+      <strong className="font-bold">この機能は画像を作りません。</strong>
+      着ている姿の生成は上のAI合成の担当で、こちらは「何と何を合わせるか」を決めるところまでです。
+    </p>
+  );
+}
+
+export function StylistKeyHelp() {
+  return (
+    <details className="rounded-2xl border border-border bg-surface-muted p-3 text-left">
+      <summary className="cursor-pointer list-none text-xs font-bold text-accent">
+        Claude のAPIキーの取り方を見る
+      </summary>
+      <div className="mt-3">
+        <a
+          href={STYLIST_PROVIDER.consoleUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-3 inline-block text-[11px] font-bold text-accent underline"
+        >
+          {STYLIST_PROVIDER.label} でAPIキーを取得する →
+        </a>
+        <ol className="space-y-2">
+          {STYLIST_PROVIDER.steps.map((step, i) => (
+            <li key={i} className="flex gap-2 text-[11px] leading-relaxed text-muted-foreground">
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-accent-foreground">
+                {i + 1}
+              </span>
+              <span>{step}</span>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-3 rounded-xl bg-surface p-2.5 text-[10px] leading-relaxed text-muted-foreground">
+          <strong className="font-bold">費用について:</strong> {STYLIST_PROVIDER.cost}
+        </p>
+      </div>
+    </details>
   );
 }

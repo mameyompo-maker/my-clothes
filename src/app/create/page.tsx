@@ -17,7 +17,12 @@ import {
   updateUserProfile,
   uploadImage,
 } from "@/lib/firestore";
-import { composeOutfitImage, isAiComposeEnabled, precomposeOutfit } from "@/lib/functions";
+import {
+  composeOutfitImage,
+  isAiComposeEnabled,
+  precomposeOutfit,
+  suggestOutfitPair,
+} from "@/lib/functions";
 import { compressImage } from "@/lib/image";
 import { suggestOutfit } from "@/lib/recommend";
 import {
@@ -92,7 +97,7 @@ interface QuickCombo {
 }
 
 export default function CreatePostPage() {
-  const { user, profile, refreshProfile, hasAiKey } = useAuth();
+  const { user, profile, refreshProfile, hasAiKey, hasStylistKey } = useAuth();
   const router = useRouter();
 
   const [closetItems, setClosetItems] = useState<ClosetItem[]>([]);
@@ -135,6 +140,8 @@ export default function CreatePostPage() {
   // 2択の公開範囲。既定は友達だけ(いきなり全体公開されると驚くため)。
   const [outfitVisibility, setOutfitVisibility] = useState<PostVisibility>("friends");
   const [submitting, setSubmitting] = useState(false);
+  const [aiSuggestBusy, setAiSuggestBusy] = useState(false);
+  const [aiSuggestError, setAiSuggestError] = useState("");
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -375,6 +382,38 @@ export default function CreatePostPage() {
     const map: Partial<Record<ClosetCategory, string>> = {};
     for (const item of suggestion.items) map[item.category] = item.id;
     updateDraft(target, { itemIdsByCategory: map });
+  }
+
+  /**
+   * Claude に2択そのものを考えてもらう。
+   *
+   * 「おまかせ」との違いは中身の決め方。おまかせは季節・ジャンル・着ていない期間の
+   * ルールで選ぶだけだが、こちらは色の相性や本人の骨格まで見たうえで、
+   * **方向性の違う2案**を返してくる。画像は作らない(それは合成側の担当)。
+   */
+  async function handleAiSuggest() {
+    if (aiSuggestBusy) return;
+    setAiSuggestBusy(true);
+    setAiSuggestError("");
+    try {
+      const candidates = await suggestOutfitPair();
+      setBuildMode("topDown");
+      candidates.slice(0, 2).forEach((c, index) => {
+        const map: Partial<Record<ClosetCategory, string>> = {};
+        for (const id of c.itemIds) {
+          const item = closetItems.find((it) => it.id === id);
+          if (item) map[item.category] = item.id;
+        }
+        updateDraft(index as Slot, { itemIdsByCategory: map });
+      });
+      // 本人がまだ気分を書いていないときだけ、提案の名前を初期値として入れる。
+      if (!mood.trim() && candidates[0]?.label) setMood(candidates[0].label);
+      setStep("finish");
+    } catch (err) {
+      setAiSuggestError(err instanceof Error ? err.message : "提案を受け取れませんでした。");
+    } finally {
+      setAiSuggestBusy(false);
+    }
   }
 
   function handleLiveCapture(e: React.ChangeEvent<HTMLInputElement>) {
@@ -664,6 +703,34 @@ export default function CreatePostPage() {
                 </p>
               </div>
             </button>
+
+            {/* Claude に2択そのものを考えてもらう。キーを登録した人にだけ出す
+                (未登録の人に押させても失敗するだけなので、導線ごと出さない)。 */}
+            {hasStylistKey && (
+              <button
+                onClick={handleAiSuggest}
+                disabled={aiSuggestBusy}
+                className="tappable flex w-full items-center gap-3 rounded-3xl border border-accent bg-surface p-5 text-left disabled:opacity-60"
+              >
+                <IconSparkles
+                  className={`h-6 w-6 shrink-0 text-accent ${aiSuggestBusy ? "animate-pulse" : ""}`}
+                />
+                <div>
+                  <span className="block text-base font-bold text-accent">
+                    {aiSuggestBusy ? "AIが考えています…" : "AIに2択を考えてもらう"}
+                  </span>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    色の相性や骨格まで見て、方向性の違う2案を組みます
+                  </p>
+                </div>
+              </button>
+            )}
+
+            {aiSuggestError && (
+              <p className="rounded-2xl border border-danger/40 bg-danger/5 p-3 text-[11px] leading-relaxed text-danger">
+                {aiSuggestError}
+              </p>
+            )}
           </div>
         </div>
       </>
