@@ -534,9 +534,12 @@ export async function setMyAiKey(uid: string, apiKey: string): Promise<AiProvide
   const database = requireDb();
   const trimmed = apiKey.trim();
   const provider = detectAiProvider(trimmed);
+  // 判別できない文字列は**保存しない**。以前はここで provider を "google" に倒して
+  // 書き込んでいたので、貼り間違いがそのまま残り、合成のたびに失敗し続けていた。
+  if (!provider) return null;
   await setDoc(
     doc(database, "userSecrets", uid),
-    { geminiApiKey: trimmed, provider: provider ?? "google", updatedAt: Date.now() },
+    { geminiApiKey: trimmed, provider, updatedAt: Date.now() },
     { merge: true }
   );
   return provider;

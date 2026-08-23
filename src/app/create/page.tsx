@@ -1008,7 +1008,9 @@ export default function CreatePostPage() {
             <span className="text-[11px] text-muted-foreground">候補{slot === 0 ? "A" : "B"}に設定</span>
           </div>
           <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
-            登録すると投稿カードに一緒に表示されます。AI合成が使えるときは、この顔で着用イメージも作ります。
+            登録すると投稿カードに一緒に表示されます。
+            <strong className="font-bold text-foreground">着ている姿のAI合成には、この顔写真が必要です。</strong>
+            選ばない場合は、服を並べた表示のまま投稿されます。
           </p>
 
           {!hasAiKey && (
@@ -1023,6 +1025,29 @@ export default function CreatePostPage() {
                 登録しなくても、このまま服を並べた表示で投稿できます。
               </span>
             </Link>
+          )}
+
+          {/* キーは登録済みなのに顔が無い=合成は始まらない。以前はここで何も出さず、
+              「AIが動かない」ようにしか見えなかった。理由と直し方をその場で伝える。 */}
+          {hasAiKey && draft.outfitPhotoFile && (
+            <div className="mb-3 flex items-start gap-2 rounded-2xl border border-border bg-surface-muted p-3">
+              <IconSparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="text-[11px] leading-relaxed text-muted-foreground">
+                この候補は<strong className="font-bold text-foreground">全身写真を使うのでAI合成はしません</strong>。
+                撮った写真そのものが表示されます。AIで作りたい場合は写真を外してください。
+              </span>
+            </div>
+          )}
+
+          {hasAiKey && !draft.outfitPhotoFile && !draft.liveCaptureFile && !draft.facePatternId && (
+            <div className="mb-3 flex items-start gap-2 rounded-2xl border border-accent/40 bg-accent-soft p-3">
+              <IconSparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+              <span className="text-[11px] leading-relaxed text-muted-foreground">
+                <strong className="font-bold text-accent">あと1歩でAI合成できます。</strong>
+                APIキーは登録済みです。着ている姿を作るには顔写真が要るので、
+                下から選ぶか、その場で撮ってください。
+              </span>
+            </div>
           )}
 
           <div className="mb-2 flex gap-2">
