@@ -38,6 +38,11 @@ export type AiProvider = "google" | "openai";
 /** キーの見た目から提供元を割り出す。判別できなければ null。 */
 function detectProvider(apiKey: string): AiProvider | null {
   const key = apiKey.trim();
+  // ⚠ Claude のキー "sk-ant-" は OpenAI の "sk-" に前方一致する。ここで先に弾かないと
+  //   Claudeのキーが OpenAI 扱いになり、合成が毎回認証エラーで落ちる。
+  //   そもそも Claude は画像を作れないので、合成の提供元にはなり得ない。
+  //   **src/lib/aiProviders.ts の detectAiProvider と同じ順序を保つこと。**
+  if (key.startsWith("sk-ant-")) return null;
   if (key.startsWith("AIza")) return "google";
   if (key.startsWith("sk-")) return "openai";
   return null;
@@ -62,6 +67,15 @@ async function requireUserAiKey(uid: string): Promise<AiCredential> {
     throw new HttpsError(
       "failed-precondition",
       "AI合成にはご自身のAPIキーが必要です。プロフィール編集画面から登録してください。"
+    );
+  }
+  // 画像生成の欄に Claude のキーが入っている(古い登録や貼り間違い)場合は、
+  // Google として叩いて意味不明なエラーを見せるより、理由を言って止める。
+  if (apiKey.startsWith("sk-ant-")) {
+    throw new HttpsError(
+      "failed-precondition",
+      "AI合成の欄に Claude のキーが登録されています。Claude は画像を作れません。" +
+        "プロフィール編集画面で、Google AI Studio か OpenAI のキーに入れ替えてください。"
     );
   }
   // 保存時に provider を書いているが、それ以前に登録された分は入っていない。
