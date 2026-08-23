@@ -145,11 +145,20 @@ export default function CreatePostPage() {
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- AI合成の先行実行。仕上げステップに入った時点で裏で合成を始めておき、
-  // 気分や共有相手を入力している時間で「合成待ち」を吸収する。
-  // キー(署名)は「服の組み合わせ+顔」。署名→合成済みURL。
+  // --- 着ている姿の合成。選んだ服と自分の顔から1枚を作り、**この画面で見せる**。
+  // 仕上げステップに入った時点で裏で走り出すので、気分や共有相手を入力している時間が
+  // そのまま待ち時間の吸収になる。キー(署名)は「服の組み合わせ+顔」。
   const [precomposed, setPrecomposed] = useState<Record<string, string>>({});
-  // 一度発火した署名。失敗しても再発火しない(投稿時の通常ルートが拾い直すため)。
+  // 合成が今走っている署名。ボタンの二重押しを防ぎ、待っていることを画面に出す。
+  const [composing, setComposing] = useState<Record<string, true>>({});
+  // 失敗した理由。署名ごとに持つ。
+  //
+  // ⚠ ここは以前 `catch {}` で握りつぶしていた。投稿時にもう一度試すので「投稿は
+  // 妨げない」という判断だったが、**本人からは永久に「合成しています…」のまま**に見え、
+  // 「AIが動かない」という報告になった。実際の理由(無料枠が0)は画面のどこにも
+  // 出ていなかった。失敗は必ず理由ごと出すこと。
+  const [composeError, setComposeError] = useState<Record<string, string>>({});
+  // 一度発火した署名。自動発火の重複を防ぐ(手動の作り直しはこれを外してから走る)。
   const precomposeStarted = useRef<Set<string>>(new Set());
   // 撮影した顔写真のアップロード結果。同じファイルの二重アップロードを防ぐ。
   const liveUploads = useRef<Map<File, Promise<string>>>(new Map());
@@ -245,34 +254,60 @@ export default function CreatePostPage() {
       .catch(() => setWeather(null));
   }, []);
 
-  // 仕上げステップに入ったら、確定している候補のAI合成を先に始める。
-  // 発火は仕上げステップ限定にしてある: 服選びの途中で発火すると、選び直すたびに
-  // 使われない合成が走ってトークンを無駄にするため。ここなら組み合わせはほぼ確定している。
-  useEffect(() => {
-    // AI合成は本人が自分のAPIキーを登録しているときだけ走らせる。
-    // 未登録で叩いても関数側で failed-precondition になるだけなので、発火させない。
-    if (!isAiComposeEnabled || !hasAiKey || step !== "finish" || !user) return;
-    for (const d of drafts) {
-      const sig = draftSignature(d);
-      if (!sig || precomposeStarted.current.has(sig)) continue;
-      precomposeStarted.current.add(sig);
-      void (async () => {
-        try {
-          let liveCaptureUrl: string | null = null;
-          if (d.liveCaptureFile) liveCaptureUrl = await uploadLiveCapture(d.liveCaptureFile, user.uid);
-          const { composedImageUrl } = await precomposeOutfit({
-            itemIds: Object.values(d.itemIdsByCategory) as string[],
-            facePatternId: d.liveCaptureFile ? null : d.facePatternId,
-            liveCaptureUrl,
-          });
-          setPrecomposed((prev) => ({ ...prev, [sig]: composedImageUrl }));
-        } catch {
-          // 失敗してもここでは何もしない。投稿時の通常ルート(composeOutfitImage)が
-          // もう一度試すので、先行合成の失敗が投稿を妨げることはない。
-        }
-      })();
+  /**
+   * 選んだ服と自分の顔から、着ている姿を1枚つくる。
+   *
+   * 自動(仕上げステップに入った時)と手動(「着た姿を見る」ボタン)の両方がここを通る。
+   * force は作り直し。失敗した組み合わせや、一度作った組み合わせをもう一度投げ直す。
+   */
+  async function runCompose(d: Draft, force = false) {
+    if (!isAiComposeEnabled || !hasAiKey || !user) return;
+    const sig = draftSignature(d);
+    if (!sig) return;
+    if (!force && (precomposeStarted.current.has(sig) || precomposed[sig])) return;
+
+    precomposeStarted.current.add(sig);
+    setComposeError((prev) => {
+      if (!prev[sig]) return prev;
+      const next = { ...prev };
+      delete next[sig];
+      return next;
+    });
+    setComposing((prev) => ({ ...prev, [sig]: true }));
+
+    try {
+      let liveCaptureUrl: string | null = null;
+      if (d.liveCaptureFile) liveCaptureUrl = await uploadLiveCapture(d.liveCaptureFile, user.uid);
+      const { composedImageUrl } = await precomposeOutfit({
+        itemIds: Object.values(d.itemIdsByCategory) as string[],
+        facePatternId: d.liveCaptureFile ? null : d.facePatternId,
+        liveCaptureUrl,
+      });
+      setPrecomposed((prev) => ({ ...prev, [sig]: composedImageUrl }));
+    } catch (err) {
+      setComposeError((prev) => ({
+        ...prev,
+        [sig]: err instanceof Error && err.message ? err.message : "着ている姿を作れませんでした。",
+      }));
+      // 理由を直せばもう一度試せるように、発火済みの印を外しておく。
+      precomposeStarted.current.delete(sig);
+    } finally {
+      setComposing((prev) => {
+        const next = { ...prev };
+        delete next[sig];
+        return next;
+      });
     }
+  }
+
+  // 仕上げステップに入ったら、確定している候補の合成を先に始める。
+  // 発火は仕上げステップ限定にしてある: 服選びの途中で発火すると、選び直すたびに
+  // 使われない合成が走って費用が無駄になるため。ここなら組み合わせはほぼ確定している。
+  useEffect(() => {
+    if (step !== "finish") return;
+    for (const d of drafts) void runCompose(d);
     // drafts の変更(顔の選び直しなど)でも再評価する。署名が変わった候補だけ新たに発火する。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, drafts, user, hasAiKey]);
 
   /** 今日の2択を取り消して、もう一度作れる状態に戻す。 */
@@ -1026,17 +1061,31 @@ export default function CreatePostPage() {
           {([0, 1] as Slot[]).map((s) => {
             const sig = draftSignature(drafts[s]);
             const composed = sig ? precomposed[sig] : undefined;
+            const busy = sig ? Boolean(composing[sig]) : false;
+            const failed = sig ? composeError[sig] : undefined;
             return (
               <div key={s} className="rounded-2xl border border-border bg-surface p-2">
                 <p className="mb-1.5 text-center text-xs font-bold">
                   候補{s === 0 ? "A" : "B"}
-                  {drafts[s].outfitPhotoPreviewUrl ? "(写真)" : ""}
+                  {drafts[s].outfitPhotoPreviewUrl ? "(写真)" : composed ? "(着た姿)" : ""}
                 </p>
                 {drafts[s].outfitPhotoPreviewUrl ? (
                   <div className="relative aspect-[3/4] overflow-hidden rounded-lg bg-surface-muted">
                     <Image
                       src={drafts[s].outfitPhotoPreviewUrl as string}
                       alt="全身写真の候補"
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                ) : composed ? (
+                  // ここが本題。選んだ服を自分が着ている姿そのものを出す。
+                  // 服のサムネイルを並べるだけでは「どっちが似合うか」を選べない。
+                  <div className="relative aspect-[3/4] overflow-hidden rounded-lg bg-surface-muted">
+                    <Image
+                      src={composed}
+                      alt={`候補${s === 0 ? "A" : "B"}を着ている姿`}
                       fill
                       className="object-cover"
                       unoptimized
@@ -1053,16 +1102,45 @@ export default function CreatePostPage() {
                       ))}
                   </div>
                 )}
-                {/* 顔を選ぶと、入力の裏でAI合成を先に進めておく(投稿時の待ちを無くすため)。 */}
-                {sig && (
-                  <p
-                    className={`mt-1.5 flex items-center justify-center gap-1 text-[10px] font-semibold ${
-                      composed ? "text-accent" : "text-muted-foreground"
-                    }`}
-                  >
-                    <IconSparkles className={`h-3 w-3 ${composed ? "" : "animate-pulse"}`} />
-                    {composed ? "AI合成できました" : "AI合成を先に進めています…"}
+
+                {/* 合成の状態。作れた・作っている・失敗した の3つを必ずどれか出す。
+                    黙って何も出さないと「AIが動かない」という報告になる。 */}
+                {busy && (
+                  <p className="mt-1.5 flex items-center justify-center gap-1 text-[10px] font-semibold text-muted-foreground">
+                    <IconSparkles className="h-3 w-3 animate-pulse" />
+                    着た姿を作っています…
                   </p>
+                )}
+
+                {!busy && composed && (
+                  <button
+                    onClick={() => void runCompose(drafts[s], true)}
+                    className="tappable mt-1.5 w-full text-center text-[10px] font-semibold text-muted-foreground underline"
+                  >
+                    作り直す
+                  </button>
+                )}
+
+                {!busy && !composed && sig && hasAiKey && !failed && (
+                  <button
+                    onClick={() => void runCompose(drafts[s], true)}
+                    className="tappable mt-1.5 flex w-full items-center justify-center gap-1 rounded-lg border border-accent/40 bg-accent-soft py-1.5 text-[10px] font-bold text-accent"
+                  >
+                    <IconSparkles className="h-3 w-3" />
+                    着た姿を作る
+                  </button>
+                )}
+
+                {!busy && failed && (
+                  <div className="mt-1.5 rounded-lg border border-border bg-surface-muted p-2">
+                    <p className="text-[10px] leading-relaxed text-muted-foreground">{failed}</p>
+                    <button
+                      onClick={() => void runCompose(drafts[s], true)}
+                      className="tappable mt-1 text-[10px] font-bold text-accent underline"
+                    >
+                      もう一度試す
+                    </button>
+                  </div>
                 )}
               </div>
             );

@@ -3,6 +3,7 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore, type DocumentReference } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import * as logger from "firebase-functions/logger";
 import Anthropic from "@anthropic-ai/sdk";
 
 initializeApp();
@@ -501,6 +502,43 @@ const COMPOSE_INSTRUCTION =
   "アクセサリーを実際に着用している様子を、自然な光でシンプルな背景の写真として1枚に合成してください。" +
   "全身または上半身が分かる構図でお願いします。";
 
+/**
+ * 提供元が返したエラーを、本人が次に何をすればよいか分かる一文に直す。
+ *
+ * ⚠ **2026-08-23 に判明した「着ている姿が作れない」原因。** 生のJSONをそのまま
+ * 投げ返していたので、画面には直しようのない文字列しか出ていなかった。実際の中身は
+ * `limit: 0` の429で、これは**混雑ではなく無料枠そのものが0**という意味。
+ * つまり待っても永久に通らず、課金設定をしない限り解決しない。
+ * 「少し待ってもう一度」と案内してしまうと、いつまでも待たせることになる。
+ */
+function describeProviderFailure(provider: AiProvider, status: number, body: string): string {
+  const where = provider === "openai" ? "OpenAI" : "Google";
+
+  if (status === 429) {
+    // 上限が0 = 無料枠に画像生成が含まれていない。一時的な混雑とは区別して伝える。
+    if (/limit:\s*0\b/.test(body) || /free_tier/i.test(body) || /insufficient_quota/i.test(body)) {
+      return provider === "openai"
+        ? "OpenAIのアカウントに残高がありません。https://platform.openai.com/settings/organization/billing でクレジットを追加すると使えるようになります。"
+        : "画像生成は無料枠では使えません(上限が0のため、待っても通りません)。https://aistudio.google.com/apikey でキーの持ち主のプロジェクトに従量課金を設定すると使えるようになります。";
+    }
+    return `${where}側が今混み合っています。少し待ってからもう一度お試しください。`;
+  }
+
+  if (status === 401 || status === 403 || /API_KEY_INVALID|api key not valid|invalid_api_key/i.test(body)) {
+    return `APIキーが${where}に受け付けられませんでした。プロフィール編集画面でキーを入れ直してください。`;
+  }
+
+  if (status === 404) {
+    return `${where}側で画像モデルが見つかりませんでした。アプリ側の設定の問題なので、Kazさんにお知らせください。`;
+  }
+
+  if (status >= 500) {
+    return `${where}側で障害が起きているようです。時間をおいてお試しください。`;
+  }
+
+  return `${where}の画像生成に失敗しました (${status})。`;
+}
+
 interface GeneratedImage {
   /** base64(データURLの接頭辞は含まない) */
   data: string;
@@ -551,7 +589,10 @@ async function generateWithGemini(
   );
 
   if (!res.ok) {
-    throw new Error(`Gemini API呼び出しに失敗しました (${res.status}): ${await res.text()}`);
+    const body = await res.text();
+    // 生の本文は原因を追うために残す。画面に出るのは describeProviderFailure の一文だけ。
+    logger.error("Gemini image generation failed", { status: res.status, body: body.slice(0, 2000) });
+    throw new Error(describeProviderFailure("google", res.status, body));
   }
 
   const json = (await res.json()) as {
@@ -559,7 +600,9 @@ async function generateWithGemini(
   };
   const inlinePart = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
   if (!inlinePart?.inlineData?.data) {
-    throw new Error("Geminiから画像が返されませんでした。");
+    // HTTPは200なのに画像が無い = だいたいモデル側が生成を断っている(人物写真の安全判定など)。
+    logger.error("Gemini returned no image", { body: JSON.stringify(json).slice(0, 2000) });
+    throw new Error("AIが画像の生成を断りました。顔写真を別のものに変えるとうまくいくことがあります。");
   }
   return {
     data: inlinePart.inlineData.data,
@@ -593,7 +636,9 @@ async function generateWithOpenAI(
   });
 
   if (!res.ok) {
-    throw new Error(`OpenAI API呼び出しに失敗しました (${res.status}): ${await res.text()}`);
+    const body = await res.text();
+    logger.error("OpenAI image generation failed", { status: res.status, body: body.slice(0, 2000) });
+    throw new Error(describeProviderFailure("openai", res.status, body));
   }
 
   const json = (await res.json()) as { data?: { b64_json?: string }[] };
