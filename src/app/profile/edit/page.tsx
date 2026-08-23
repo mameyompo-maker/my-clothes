@@ -73,7 +73,7 @@ export default function EditProfilePage() {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
-  // --- AI合成に使う自分の Google AI Studio APIキー。
+  // --- AI合成に使う自分のAPIキー(Google AI Studio か OpenAI)。
   // 保存先は userSecrets/{uid}(本人だけが読めるコレクション)。
   // 画面には伏せ字しか出さず、入力欄に元の値を流し込むこともしない。
   const [savedKey, setSavedKey] = useState<{ mask: string; providerLabel: string } | null>(null);

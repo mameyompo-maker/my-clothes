@@ -35,7 +35,7 @@ interface AuthContextValue {
   followingUids: string[];
   refreshFollowing: () => Promise<void>;
   /**
-   * 自分の Google AI Studio APIキーを登録済みか。
+   * 自分のAPIキー(Google AI Studio か OpenAI)を登録済みか。
    * AI合成は各自のキーで走るので、未登録の人には合成を発火させない
    * (発火させても関数側で failed-precondition になるだけで無駄になる)。
    * キーそのものはここには持たない。必要になるのはサーバー側だけなので。

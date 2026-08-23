@@ -1019,7 +1019,7 @@ export default function CreatePostPage() {
               <IconSparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="text-[11px] leading-relaxed text-muted-foreground">
                 <strong className="font-bold text-foreground">着ている姿をAIで作る</strong>には、
-                プロフィール編集画面でご自身の Google AI Studio APIキーを登録してください。
+                プロフィール編集画面でご自身のAPIキー(Google AI Studio か OpenAI)を登録してください。
                 登録しなくても、このまま服を並べた表示で投稿できます。
               </span>
             </Link>
