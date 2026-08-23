@@ -7,9 +7,18 @@ import {
   addSeedClosetItems,
   listClosetItems,
   redeemInviteCode,
+  setMyAiKey,
   updateUserProfile,
 } from "@/lib/firestore";
+import { verifyAiKey } from "@/lib/functions";
 import { seedItemsFor, WARDROBE_STYLES, type WardrobeStyle } from "@/data/seedClosetItems";
+import {
+  ApiKeyField,
+  ApiKeyHeading,
+  ApiKeyHelp,
+  ApiKeyIntro,
+  NoKeyNotice,
+} from "@/components/ApiKeySetup";
 
 export default function OnboardingPage() {
   return (
@@ -19,20 +28,28 @@ export default function OnboardingPage() {
   );
 }
 
+/**
+ * AI合成が使える状態になったかどうか。登録し終えた画面で本人に伝える。
+ * null は「その話をしない」(招待リンクから来た既存ユーザーなど)。
+ */
+type AiOutcome = { kind: "none" } | { kind: "ok"; text: string } | { kind: "ng"; text: string };
+
 type Phase =
   | { kind: "input" }
   | { kind: "working"; label: string }
-  | { kind: "added"; friendName: string }
+  | { kind: "done"; friendName: string | null; ai: AiOutcome | null }
   | { kind: "failed"; message: string };
 
 function OnboardingContent() {
-  const { user, signInWithGoogle, refreshProfile } = useAuth();
+  const { user, signInWithGoogle, refreshProfile, refreshAiKey } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const inviteFromLink = (searchParams.get("invite") ?? "").trim().toUpperCase();
   const [code, setCode] = useState(inviteFromLink);
   // 初期クローゼットの中身。既定はレディース(主な想定利用者に合わせている)。
   const [style, setStyle] = useState<WardrobeStyle>("women");
+  // AI合成に使うAPIキー。**任意**。空のまま登録してもアプリは全部使える。
+  const [apiKey, setApiKey] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "input" });
   // サインイン済みの人が招待リンクを開いたときの処理を、一度だけ走らせるための番人。
   const linkHandled = useRef(false);
@@ -49,7 +66,8 @@ function OnboardingContent() {
       try {
         const { friendName } = await redeemInviteCode(user.uid, inviteFromLink);
         await refreshProfile();
-        setPhase({ kind: "added", friendName });
+        // 既にアカウントがある人なので、APIキーの話はここでは持ち出さない。
+        setPhase({ kind: "done", friendName, ai: null });
       } catch (err) {
         setPhase({
           kind: "failed",
@@ -69,6 +87,34 @@ function OnboardingContent() {
     }
   }
 
+  /**
+   * 入力されたキーを保存して、そのまま使えるか確かめる。
+   *
+   * ここで失敗しても**登録そのものは止めない**。キーは任意で、あとから設定画面で
+   * いくらでも直せるため。結果は最後の画面で伝えるだけにとどめる。
+   */
+  async function saveApiKeyIfEntered(uid: string): Promise<AiOutcome> {
+    const entered = apiKey.trim();
+    if (!entered) return { kind: "none" };
+    try {
+      const provider = await setMyAiKey(uid, entered);
+      if (!provider) {
+        return {
+          kind: "ng",
+          text: "キーの形式が違うようです。AIza(Google)または sk-(OpenAI)で始まる文字列か確認してください。プロフィールの編集画面から入れ直せます。",
+        };
+      }
+      await refreshAiKey();
+      const result = await verifyAiKey();
+      return result.ok ? { kind: "ok", text: result.message } : { kind: "ng", text: result.message };
+    } catch (err) {
+      return {
+        kind: "ng",
+        text: err instanceof Error ? err.message : "APIキーを確認できませんでした。",
+      };
+    }
+  }
+
   async function handleSignIn() {
     // ここから先はこの関数が流れを主導するので、上のuseEffectには手を出させない。
     linkHandled.current = true;
@@ -84,16 +130,22 @@ function OnboardingContent() {
       return;
     }
 
+    let ai: AiOutcome = { kind: "none" };
+    if (apiKey.trim()) {
+      setPhase({ kind: "working", label: "APIキーを確認しています…" });
+      ai = await saveApiKeyIfEntered(signedInUid);
+    }
+
     const entered = code.trim().toUpperCase();
     if (!entered) {
-      router.replace("/feed");
+      setPhase({ kind: "done", friendName: null, ai });
       return;
     }
     setPhase({ kind: "working", label: "友達を追加しています…" });
     try {
       const { friendName } = await redeemInviteCode(signedInUid, entered);
       await refreshProfile();
-      setPhase({ kind: "added", friendName });
+      setPhase({ kind: "done", friendName, ai });
     } catch (err) {
       setPhase({
         kind: "failed",
@@ -105,7 +157,7 @@ function OnboardingContent() {
   const showSpinner = phase.kind === "working" || (phase.kind === "input" && user !== null);
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-8 text-center">
+    <div className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-7 px-6 py-10 text-center">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">My Clothes</h1>
         <p className="text-sm text-muted-foreground">朝のコーデ選びを、友達と一緒に。</p>
@@ -120,14 +172,35 @@ function OnboardingContent() {
         </div>
       )}
 
-      {phase.kind === "added" && (
-        <div className="w-full max-w-xs space-y-4">
+      {phase.kind === "done" && (
+        <div className="w-full space-y-4">
           <div className="space-y-1">
-            <p className="text-base font-semibold">{phase.friendName}さんとつながりました!</p>
+            <p className="text-base font-semibold">
+              {phase.friendName ? phase.friendName + "さんとつながりました!" : "準備ができました!"}
+            </p>
             <p className="text-xs text-muted-foreground">
-              お互いのコーデ投稿に投票できるようになりました。
+              {phase.friendName
+                ? "お互いのコーデ投稿に投票できるようになりました。"
+                : "クローゼットに服を入れておいたので、そのまま2択を作れます。"}
             </p>
           </div>
+
+          {phase.ai?.kind === "ok" && (
+            <div className="rounded-2xl border border-accent/40 bg-accent-soft p-3 text-left">
+              <p className="text-xs font-bold text-accent">AI合成が使えます</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{phase.ai.text}</p>
+            </div>
+          )}
+
+          {phase.ai?.kind === "ng" && (
+            <div className="rounded-2xl border border-danger/40 bg-danger/5 p-3 text-left">
+              <p className="text-xs font-bold text-danger">APIキーを確認できませんでした</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{phase.ai.text}</p>
+            </div>
+          )}
+
+          {phase.ai?.kind === "none" && <NoKeyNotice where="onboarding" />}
+
           <button
             onClick={() => router.replace("/feed")}
             className="w-full rounded-full bg-accent px-6 py-3 font-semibold text-accent-foreground shadow-lg shadow-accent/30"
@@ -138,7 +211,7 @@ function OnboardingContent() {
       )}
 
       {!user && (phase.kind === "input" || phase.kind === "failed") && (
-        <div className="w-full max-w-xs space-y-4">
+        <div className="w-full space-y-5">
           {/* 空のクローゼットから始めさせると何もできないので、最初から実物の服を入れておく。
               メンズとレディースで中身がまるで違うため、どちらを入れるかは本人に選ばせる。 */}
           <div className="text-left">
@@ -185,6 +258,22 @@ function OnboardingContent() {
               後からプロフィール画面でも追加できます。
             </p>
           </div>
+
+          {/* APIキーは**任意**。ここで入れておくと、最初の2択からAI合成が使える。
+              入れなくても登録できることが分かるように、未入力のときは NoKeyNotice を出す。 */}
+          <div className="space-y-3 text-left">
+            <div>
+              <ApiKeyHeading>AI合成のAPIキー(任意)</ApiKeyHeading>
+              <div className="mt-1.5">
+                <ApiKeyIntro />
+              </div>
+            </div>
+
+            <ApiKeyField value={apiKey} onChange={setApiKey} />
+            <ApiKeyHelp />
+            {!apiKey.trim() && <NoKeyNotice where="onboarding" />}
+          </div>
+
           <button
             onClick={handleSignIn}
             className="w-full rounded-full bg-accent px-6 py-3 font-semibold text-accent-foreground shadow-lg shadow-accent/30"
@@ -196,7 +285,7 @@ function OnboardingContent() {
       )}
 
       {user && phase.kind === "failed" && (
-        <div className="w-full max-w-xs space-y-4">
+        <div className="w-full space-y-4">
           <p className="text-sm text-red-500">{phase.message}</p>
           <p className="text-xs text-muted-foreground">
             プロフィール画面の「招待コードを入力してつながる」から、もう一度試せます。

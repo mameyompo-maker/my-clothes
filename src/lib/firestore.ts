@@ -21,6 +21,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db, loadStorage } from "./firebase";
+import { detectAiProvider, type AiProvider } from "./aiProviders";
 import {
   blockId,
   followId,
@@ -497,42 +498,53 @@ export async function suggestUsersToFollow(
 // ---------- 自分だけの秘密(Gemini APIキー) ----------
 
 /**
- * AI合成に使う Google AI Studio の APIキー。
+ * AI合成に使うAPIキー。Google AI Studio でも OpenAI でもよい。
  *
  * **users ドキュメントには絶対に入れない。** users は「サインインしていれば誰でも読める」
  * ルールなので、そこに置くと他の利用者全員に自分のキーが読まれる。
  * userSecrets は本人だけが読み書きできる別コレクションにしてある。
+ *
+ * フィールド名 geminiApiKey は Google 専用だった頃の名残。中身は Google のキーとは
+ * 限らないので、必ず provider と合わせて扱うこと(改名すると既存の登録が読めなくなる)。
  */
 export interface UserSecret {
   geminiApiKey?: string;
+  provider?: AiProvider;
   updatedAt?: number;
 }
 
-export async function getMyGeminiKey(uid: string): Promise<string | null> {
+export interface StoredAiKey {
+  apiKey: string;
+  provider: AiProvider;
+}
+
+export async function getMyAiKey(uid: string): Promise<StoredAiKey | null> {
   const database = requireDb();
   const snap = await getDoc(doc(database, "userSecrets", uid));
   if (!snap.exists()) return null;
-  return (snap.data() as UserSecret).geminiApiKey ?? null;
+  const data = snap.data() as UserSecret;
+  const apiKey = data.geminiApiKey?.trim();
+  if (!apiKey) return null;
+  // provider を持たない古い登録は、キーの形から割り出す(それも駄目なら旧仕様の Google)。
+  return { apiKey, provider: data.provider ?? detectAiProvider(apiKey) ?? "google" };
 }
 
-export async function setMyGeminiKey(uid: string, apiKey: string): Promise<void> {
+/** 保存する。判別できた提供元も一緒に書いておく(サーバーはこれを見る)。 */
+export async function setMyAiKey(uid: string, apiKey: string): Promise<AiProvider | null> {
   const database = requireDb();
+  const trimmed = apiKey.trim();
+  const provider = detectAiProvider(trimmed);
   await setDoc(
     doc(database, "userSecrets", uid),
-    { geminiApiKey: apiKey.trim(), updatedAt: Date.now() },
+    { geminiApiKey: trimmed, provider: provider ?? "google", updatedAt: Date.now() },
     { merge: true }
   );
+  return provider;
 }
 
-export async function clearMyGeminiKey(uid: string): Promise<void> {
+export async function clearMyAiKey(uid: string): Promise<void> {
   const database = requireDb();
   await setDoc(doc(database, "userSecrets", uid), { geminiApiKey: "", updatedAt: Date.now() }, { merge: true });
-}
-
-/** 画面に出す用の伏せ字。先頭4文字と末尾4文字だけ残す。 */
-export function maskApiKey(key: string): string {
-  if (key.length <= 10) return "••••••••";
-  return `${key.slice(0, 4)}••••••••${key.slice(-4)}`;
 }
 
 // ---------- Follows ----------

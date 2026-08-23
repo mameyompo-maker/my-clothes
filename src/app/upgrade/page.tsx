@@ -120,8 +120,8 @@ function UpgradeContent() {
               <h1 className="mb-2 text-xl font-bold tracking-tight">プレミアムについて</h1>
               <p className="text-sm leading-relaxed text-muted-foreground">
                 アプリの機能はほぼすべて無料で使えます。プレミアムは、回数の上限を外したい人向けの
-                任意のプランです。AIによる着用イメージの生成は、ご自身の Google AI Studio APIキーを
-                登録すれば無料プランのまま使えます。
+                任意のプランです。AIによる着用イメージの生成は、ご自身のAPIキー(Google AI Studio
+                または OpenAI)を登録すれば無料プランのまま使えます。
               </p>
             </div>
 

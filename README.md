@@ -7,7 +7,7 @@
 - **クローゼット**: トップス/ボトムス/アウター/シューズ/アクセサリーの5カテゴリーで服を撮影・登録。初回は普遍的な服10種類がサンプルとして自動で入る。
 - **顔パターン**: 髪型・メイク違いの顔写真を最大5枚登録し、毎日の投稿時にその場で撮る代わりに選ぶだけでも使える。
 - **コーデ投稿**: クローゼットから服を選んで候補A/Bを作成し、今日の気分・予定を添えて投稿。共有する友達を選べる。
-- **AI合成(任意)**: 服の写真+顔写真を Gemini の画像編集モデルに渡し、実際に着用しているような1枚の合成画像を生成。**利用者が自分の Google AI Studio APIキーを登録したときだけ動く**(未登録でもアプリは全部使え、その場合は服を並べた表示になる)。
+- **AI合成(任意)**: 服の写真+顔写真を画像編集モデルに渡し、実際に着用しているような1枚の合成画像を生成。**利用者が自分のAPIキーを登録したときだけ動く**(未登録でもアプリは全部使え、その場合は服を並べた表示になる)。キーは **Google AI Studio と OpenAI のどちらでもよい**(貼られた文字列の形で自動判別)。登録は「最初の登録画面」と「プロフィール編集画面」の両方からできる。
 - **投票**: 友達は候補A/Bを横並び2択タップで投票。投票すると票数が見える。
 - **招待制の友達関係**: 招待コード/リンクで友達を追加。投稿は招待コードで繋がった友達の中から選んで共有。
 
@@ -15,7 +15,7 @@
 
 - Next.js 16 (App Router, TypeScript, Tailwind CSS v4) — Web PWA
 - Firebase (Authentication / Firestore / Storage)
-- Firebase Cloud Functions + Gemini API(画像編集モデル)によるコーデ合成 — **任意。各利用者が自分のAPIキーを登録して使う(費用も各自負担)**
+- Firebase Cloud Functions + 画像編集モデル(Gemini / OpenAI)によるコーデ合成 — **任意。各利用者が自分のAPIキーを登録して使う(費用も各自負担)**
 
 友達招待は Cloud Functions を使わず、Firestore のセキュリティルールだけで「招待コードを知っている人が自分自身を相手の友達リストに追加する」処理を完結させている(`src/lib/firestore.ts` の `redeemInviteCode`)。
 
@@ -89,15 +89,20 @@ firebase deploy --only firestore:rules,storage
 
 ## AI合成について(運営側の設定は不要)
 
-**2026-08-06 以降、合成は利用者それぞれが自分の Google AI Studio APIキーで行う。**
+**2026-08-06 以降、合成は利用者それぞれが自分のAPIキーで行う。**
 運営が `GEMINI_API_KEY` をシークレットに登録する必要はもう無い(登録しても使われない)。
-利用者はアプリのプロフィール編集画面からキーを登録する。詳しくは後述の
+利用者は**最初の登録画面**か**プロフィール編集画面**からキーを登録する。詳しくは後述の
 「AI合成は利用者それぞれのAPIキーで動く」を参照。
 
-使うモデルだけはコード側の設定。`functions/src/index.ts` の `GEMINI_IMAGE_MODEL` が
-標準グレードの `gemini-3.1-flash-image`。安くするなら `gemini-3.1-flash-lite-image`、
-画質を上げるなら `gemini-3-pro-image`。モデル名は変わりやすいので、変更前に
-https://ai.google.dev/gemini-api/docs/models で最新の識別子を確認すること。
+**2026-08-22 以降、Google と OpenAI の両方のキーを受け付ける。** どちらかを利用者に
+選ばせるのではなく、貼られた文字列の先頭(`AIza` / `sk-`)で機械的に判別する。
+判別規則は `src/lib/aiProviders.ts` と `functions/src/index.ts` の `detectProvider` の
+**両方**にあるので、片方だけ変えないこと。
+
+使うモデルだけはコード側の設定。`functions/src/index.ts` の `GEMINI_IMAGE_MODEL`
+(既定 `gemini-3.1-flash-image`)と `OPENAI_IMAGE_MODEL`(既定 `gpt-image-2`)。
+モデル名は変わりやすいので、変更前に https://ai.google.dev/gemini-api/docs/models と
+https://developers.openai.com/api/docs/models で最新の識別子を確認すること。
 
 ```bash
 cd functions && npm install && cd ..
@@ -124,6 +129,8 @@ Vercelの無料枠(Hobbyプラン)で公開できる。課金は発生しない�
 
 - キーの保存先は Firestore の **`userSecrets/{uid}`**。ルールで**本人しか読み書きできない**。
   `users` は「サインインしていれば誰でも読める」ルールなので、**そちらには絶対に置かない**。
+  フィールド名 `geminiApiKey` は Google 専用だった頃の名残で、中身は OpenAI のキーのことも
+  ある。`provider` と必ず組で扱うこと(改名すると既存の登録が読めなくなる)。
 - Cloud Functions が Admin SDK でキーを読み、呼び出した本人のキーで Gemini を叩く。
   未登録なら「プロフィール編集画面から登録してください」と返す。
 - プロフィール編集画面の「使えるか確認」は `verifyGeminiKey` 関数が保存済みのキーで実際にAPIを叩く。

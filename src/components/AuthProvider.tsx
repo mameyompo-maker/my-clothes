@@ -5,7 +5,7 @@ import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebas
 import { auth, googleAuthProvider, isFirebaseConfigured } from "@/lib/firebase";
 import {
   ensureUserProfile,
-  getMyGeminiKey,
+  getMyAiKey,
   getUserProfile,
   getUserProfileFromCache,
   listBlockedByUids,
@@ -40,8 +40,8 @@ interface AuthContextValue {
    * (発火させても関数側で failed-precondition になるだけで無駄になる)。
    * キーそのものはここには持たない。必要になるのはサーバー側だけなので。
    */
-  hasGeminiKey: boolean;
-  refreshGeminiKey: () => Promise<void>;
+  hasAiKey: boolean;
+  refreshAiKey: () => Promise<void>;
   /**
    * 自分が「いいね」「保存」した投稿ID。
    *
@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
   const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
   const [reactions, setReactions] = useState<"loading" | "ready" | "unavailable">("loading");
-  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [hasAiKey, setHasAiKey] = useState(false);
   const uidRef = useRef<string | null>(null);
 
   const applyHidden = useCallback((list: string[]) => {
@@ -172,24 +172,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applyHidden([...mine, ...theirs]);
   }
 
-  const refreshGeminiKey = useCallback(async () => {
+  const refreshAiKey = useCallback(async () => {
     if (!user) {
-      setHasGeminiKey(false);
+      setHasAiKey(false);
       return;
     }
     try {
-      setHasGeminiKey(Boolean(await getMyGeminiKey(user.uid)));
+      setHasAiKey(Boolean(await getMyAiKey(user.uid)));
     } catch {
       // 読めなくても致命的ではない。未登録として扱い、合成を発火させないだけ。
-      setHasGeminiKey(false);
+      setHasAiKey(false);
     }
   }, [user]);
 
   useEffect(() => {
     // effect 本体から同期に setState するとレンダリングが連鎖するので、
     // 一度マイクロタスクに逃がしてから反映する(このファイルの他の購読と同じ扱い)。
-    queueMicrotask(() => void refreshGeminiKey());
-  }, [refreshGeminiKey]);
+    queueMicrotask(() => void refreshAiKey());
+  }, [refreshAiKey]);
 
   const refreshFollowing = useCallback(async () => {
     const uid = uidRef.current;
@@ -227,8 +227,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshBlocks,
       followingUids,
       refreshFollowing,
-      hasGeminiKey,
-      refreshGeminiKey,
+      hasAiKey,
+      refreshAiKey,
       likedPostIds,
       savedPostIds,
       reactions,
@@ -238,7 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // signIn/signOut/refresh* は毎回作り直されるが、依存に入れると値が毎回変わって
     // 下流の useEffect を無駄に走らせる。実体は state を読むだけなので除外している。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, profile, loading, hiddenUids, followingUids, likedPostIds, savedPostIds, reactions, refreshFollowing, hasGeminiKey, refreshGeminiKey, setLikedLocal, setSavedLocal]
+    [user, profile, loading, hiddenUids, followingUids, likedPostIds, savedPostIds, reactions, refreshFollowing, hasAiKey, refreshAiKey, setLikedLocal, setSavedLocal]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

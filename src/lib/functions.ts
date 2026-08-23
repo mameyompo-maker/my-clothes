@@ -1,5 +1,6 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app } from "./firebase";
+import type { AiProvider } from "./aiProviders";
 
 // functions/src/index.ts の FUNCTION_REGION と必ず同じ値にすること。
 // ここが asia-northeast1、関数側が us-central1 になっていたせいで、
@@ -70,10 +71,10 @@ export async function precomposeOutfit(input: PrecomposeOutfitInput): Promise<Co
  * 登録済みのAPIキーが実際に使えるかをサーバー側で確認する。
  * キーの中身はクライアントに返さない(サーバーが保存済みの値を読んで叩くだけ)。
  */
-export async function verifyGeminiKey(): Promise<{ ok: boolean; message: string }> {
-  const call = httpsCallable<Record<string, never>, { ok: boolean; message: string }>(
+export async function verifyAiKey(): Promise<{ ok: boolean; message: string; provider?: AiProvider }> {
+  const call = httpsCallable<Record<string, never>, { ok: boolean; message: string; provider?: AiProvider }>(
     functions(),
-    "verifyGeminiKey"
+    "verifyAiKey"
   );
   const result = await call({});
   return result.data;

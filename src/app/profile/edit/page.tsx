@@ -4,14 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  clearMyGeminiKey,
-  getMyGeminiKey,
-  maskApiKey,
-  setMyGeminiKey,
+  clearMyAiKey,
+  getMyAiKey,
+  setMyAiKey,
   updateAvatar,
   updateUserProfile,
 } from "@/lib/firestore";
-import { verifyGeminiKey } from "@/lib/functions";
+import { verifyAiKey } from "@/lib/functions";
 import { compressImage } from "@/lib/image";
 import {
   BODY_TYPES,
@@ -34,10 +33,19 @@ import {
   TopBar,
   inputClass,
 } from "@/components/ui";
-import { IconCamera, IconCheck, IconChevronLeft, IconSparkles } from "@/components/icons";
+import { IconCamera, IconChevronLeft } from "@/components/icons";
+import { maskApiKey, providerInfo } from "@/lib/aiProviders";
+import {
+  ApiKeyField,
+  ApiKeyHeading,
+  ApiKeyHelp,
+  ApiKeyIntro,
+  NoKeyNotice,
+  SavedKeyBadge,
+} from "@/components/ApiKeySetup";
 
 export default function EditProfilePage() {
-  const { user, profile, refreshProfile, refreshGeminiKey } = useAuth();
+  const { user, profile, refreshProfile, refreshAiKey } = useAuth();
   const router = useRouter();
 
   const [name, setName] = useState(profile?.name ?? "");
@@ -68,7 +76,7 @@ export default function EditProfilePage() {
   // --- AI合成に使う自分の Google AI Studio APIキー。
   // 保存先は userSecrets/{uid}(本人だけが読めるコレクション)。
   // 画面には伏せ字しか出さず、入力欄に元の値を流し込むこともしない。
-  const [savedKeyMask, setSavedKeyMask] = useState<string | null>(null);
+  const [savedKey, setSavedKey] = useState<{ mask: string; providerLabel: string } | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyMessage, setKeyMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -76,9 +84,14 @@ export default function EditProfilePage() {
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    getMyGeminiKey(user.uid)
-      .then((key) => {
-        if (!cancelled) setSavedKeyMask(key ? maskApiKey(key) : null);
+    getMyAiKey(user.uid)
+      .then((stored) => {
+        if (cancelled) return;
+        setSavedKey(
+          stored
+            ? { mask: maskApiKey(stored.apiKey), providerLabel: providerInfo(stored.provider).label }
+            : null
+        );
       })
       .catch(() => {});
     return () => {
@@ -92,12 +105,20 @@ export default function EditProfilePage() {
     setKeyBusy(true);
     setKeyMessage(null);
     try {
-      await setMyGeminiKey(user.uid, entered);
-      setSavedKeyMask(maskApiKey(entered));
+      const provider = await setMyAiKey(user.uid, entered);
+      if (!provider) {
+        // 形が違う=まず間違いなく貼り間違い。実際に叩く前にここで止める。
+        setKeyMessage({
+          ok: false,
+          text: "キーの形式が違うようです。「AIza」(Google)または「sk-」(OpenAI)で始まる文字列か確認してください。",
+        });
+        return;
+      }
+      setSavedKey({ mask: maskApiKey(entered), providerLabel: providerInfo(provider).label });
       setKeyInput("");
-      await refreshGeminiKey();
+      await refreshAiKey();
       // 保存しただけでは使えるか分からないので、そのまま実際に叩いて確かめる。
-      const result = await verifyGeminiKey();
+      const result = await verifyAiKey();
       setKeyMessage({ ok: result.ok, text: result.message });
     } catch (err) {
       setKeyMessage({ ok: false, text: err instanceof Error ? err.message : "保存に失敗しました。" });
@@ -111,7 +132,7 @@ export default function EditProfilePage() {
     setKeyBusy(true);
     setKeyMessage(null);
     try {
-      const result = await verifyGeminiKey();
+      const result = await verifyAiKey();
       setKeyMessage({ ok: result.ok, text: result.message });
     } catch (err) {
       setKeyMessage({ ok: false, text: err instanceof Error ? err.message : "確認できませんでした。" });
@@ -125,10 +146,10 @@ export default function EditProfilePage() {
     setKeyBusy(true);
     setKeyMessage(null);
     try {
-      await clearMyGeminiKey(user.uid);
-      setSavedKeyMask(null);
+      await clearMyAiKey(user.uid);
+      setSavedKey(null);
       setKeyInput("");
-      await refreshGeminiKey();
+      await refreshAiKey();
     } finally {
       setKeyBusy(false);
     }
@@ -374,33 +395,15 @@ export default function EditProfilePage() {
         </Field>
 
         <section className="mb-6 rounded-3xl border border-border bg-surface p-5">
-          <h2 className="mb-1 flex items-center gap-1.5 text-sm font-bold">
-            <IconSparkles className="h-4 w-4 text-accent" /> AI合成(着ている姿の生成)
-          </h2>
-          <p className="mb-4 text-[11px] leading-relaxed text-muted-foreground">
-            自分の顔写真と選んだ服から「実際に着ている姿」を作る機能です。
-            <strong className="font-bold">ご自身の Google AI Studio APIキー</strong>で動きます。
-            キーを登録しなくてもアプリは全部使えます(その場合は服を並べた表示になります)。
-            <br />
-            生成にかかる費用はご自身の Google アカウントに請求されます(1枚あたり十数円程度)。
-          </p>
+          <ApiKeyHeading>AI合成(着ている姿の生成)</ApiKeyHeading>
+          <div className="mt-1 mb-4">
+            <ApiKeyIntro />
+          </div>
 
-          <a
-            href="https://aistudio.google.com/apikey"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mb-4 inline-block text-xs font-bold text-accent underline"
-          >
-            Google AI Studio でAPIキーを取得する →
-          </a>
-
-          {savedKeyMask ? (
-            <div className="mb-3 rounded-2xl border border-border bg-surface-muted p-3">
-              <p className="flex items-center gap-1.5 text-xs font-bold">
-                <IconCheck className="h-4 w-4 text-accent" /> 登録済み
-              </p>
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground">{savedKeyMask}</p>
-              <div className="mt-3 flex gap-2">
+          {savedKey ? (
+            <>
+              <SavedKeyBadge mask={savedKey.mask} providerLabel={savedKey.providerLabel} />
+              <div className="mt-3 mb-4 flex gap-2">
                 <button
                   onClick={handleVerifyKey}
                   disabled={keyBusy}
@@ -416,23 +419,23 @@ export default function EditProfilePage() {
                   削除
                 </button>
               </div>
+            </>
+          ) : (
+            <div className="mb-4">
+              <NoKeyNotice where="settings" />
             </div>
-          ) : null}
+          )}
 
-          <Field label={savedKeyMask ? "別のキーに入れ替える" : "APIキー"}>
-            <input
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="AIza..."
-              className={`${inputClass} font-mono`}
-            />
+          <div className="mb-4">
+            <ApiKeyHelp />
+          </div>
+
+          <Field label={savedKey ? "別のキーに入れ替える" : "APIキー"}>
+            <ApiKeyField value={keyInput} onChange={setKeyInput} />
           </Field>
 
           <SecondaryButton onClick={handleSaveKey} disabled={!keyInput.trim() || keyBusy}>
-            {keyBusy ? "保存しています…" : savedKeyMask ? "入れ替えて確認する" : "保存して確認する"}
+            {keyBusy ? "保存しています…" : savedKey ? "入れ替えて確認する" : "保存して確認する"}
           </SecondaryButton>
 
           {keyMessage && (

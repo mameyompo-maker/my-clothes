@@ -92,7 +92,7 @@ interface QuickCombo {
 }
 
 export default function CreatePostPage() {
-  const { user, profile, refreshProfile, hasGeminiKey } = useAuth();
+  const { user, profile, refreshProfile, hasAiKey } = useAuth();
   const router = useRouter();
 
   const [closetItems, setClosetItems] = useState<ClosetItem[]>([]);
@@ -244,7 +244,7 @@ export default function CreatePostPage() {
   useEffect(() => {
     // AI合成は本人が自分のAPIキーを登録しているときだけ走らせる。
     // 未登録で叩いても関数側で failed-precondition になるだけなので、発火させない。
-    if (!isAiComposeEnabled || !hasGeminiKey || step !== "finish" || !user) return;
+    if (!isAiComposeEnabled || !hasAiKey || step !== "finish" || !user) return;
     for (const d of drafts) {
       const sig = draftSignature(d);
       if (!sig || precomposeStarted.current.has(sig)) continue;
@@ -266,7 +266,7 @@ export default function CreatePostPage() {
       })();
     }
     // drafts の変更(顔の選び直しなど)でも再評価する。署名が変わった候補だけ新たに発火する。
-  }, [step, drafts, user, hasGeminiKey]);
+  }, [step, drafts, user, hasAiKey]);
 
   /** 今日の2択を取り消して、もう一度作れる状態に戻す。 */
   async function handleUndoToday() {
@@ -473,7 +473,7 @@ export default function CreatePostPage() {
       // 合成できない間は顔写真+服の写真をそのまま並べて表示する(OutfitCard)。
       // 先行合成が済んでいない候補だけ通常ルートで合成する。先行合成が処理中なら
       // サーバー側のキャッシュロックが待ち合わせるので、二重にGeminiを呼ぶことはない。
-      if (isAiComposeEnabled && hasGeminiKey) {
+      if (isAiComposeEnabled && hasAiKey) {
         const pendingIndexes = candidates
           .map((c, index) => (c.composeStatus === "pending" ? index : -1))
           .filter((index) => index >= 0);
@@ -1011,7 +1011,7 @@ export default function CreatePostPage() {
             登録すると投稿カードに一緒に表示されます。AI合成が使えるときは、この顔で着用イメージも作ります。
           </p>
 
-          {!hasGeminiKey && (
+          {!hasAiKey && (
             <Link
               href="/profile/edit"
               className="tappable mb-3 flex items-center gap-2 rounded-2xl border border-border bg-surface p-3"

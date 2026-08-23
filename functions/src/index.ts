@@ -19,20 +19,54 @@ export { createBillingPortalSession, createCheckoutSession, stripeWebhook } from
 // userSecrets はルール上「本人しか読めない」コレクションで、ここでは Admin SDK が
 // ルールを迂回して読む。users ドキュメントに置くと他の利用者全員に読まれるので絶対に置かない。
 interface UserSecretDoc {
+  /** 歴史的な名前。中身は Google のキーとは限らないので provider と合わせて見ること。 */
   geminiApiKey?: string;
+  provider?: AiProvider;
 }
 
-/** 本人が登録した Gemini APIキー。未登録なら分かりやすい理由で失敗させる。 */
-async function requireUserGeminiKey(uid: string): Promise<string> {
+/**
+ * 対応しているAIの提供元。
+ *
+ * 2026-08-22 に Google 専用から2社対応へ広げた(Kazさん依頼:「Googleやその他のAIの
+ * APIキーを自分で入れて使えるように」)。利用者に提供元を選ばせるのではなく、
+ * **キーの形から機械的に判別する**。「どっちを選ぶか」を尋ねても、貼る本人にとっては
+ * 自明(取ってきた場所がそのまま答え)なので、選択肢を出すだけ手間が増える。
+ */
+export type AiProvider = "google" | "openai";
+
+/** キーの見た目から提供元を割り出す。判別できなければ null。 */
+function detectProvider(apiKey: string): AiProvider | null {
+  const key = apiKey.trim();
+  if (key.startsWith("AIza")) return "google";
+  if (key.startsWith("sk-")) return "openai";
+  return null;
+}
+
+interface AiCredential {
+  apiKey: string;
+  provider: AiProvider;
+}
+
+/** その提供元で使う画像モデル名。キャッシュキーにも混ぜる。 */
+function modelFor(provider: AiProvider): string {
+  return provider === "openai" ? OPENAI_IMAGE_MODEL : GEMINI_IMAGE_MODEL;
+}
+
+/** 本人が登録したAPIキー。未登録なら分かりやすい理由で失敗させる。 */
+async function requireUserAiKey(uid: string): Promise<AiCredential> {
   const snap = await db.collection("userSecrets").doc(uid).get();
-  const key = snap.exists ? (snap.data() as UserSecretDoc).geminiApiKey : undefined;
-  if (!key) {
+  const data = snap.exists ? (snap.data() as UserSecretDoc) : null;
+  const apiKey = data?.geminiApiKey?.trim();
+  if (!apiKey) {
     throw new HttpsError(
       "failed-precondition",
-      "AI合成にはご自身の Google AI Studio APIキーが必要です。プロフィール編集画面から登録してください。"
+      "AI合成にはご自身のAPIキーが必要です。プロフィール編集画面から登録してください。"
     );
   }
-  return key;
+  // 保存時に provider を書いているが、それ以前に登録された分は入っていない。
+  // その場合はキーの形から割り出し、判別できなければ Google 扱い(旧仕様のまま)にする。
+  const provider = data?.provider ?? detectProvider(apiKey) ?? "google";
+  return { apiKey, provider };
 }
 
 // クライアント側 (src/lib/functions.ts の CALLABLE_REGION) と必ず同じ値にすること。
@@ -47,6 +81,11 @@ const FUNCTION_REGION = "us-central1";
 // デプロイ前に https://ai.google.dev/gemini-api/docs/models で最新の識別子を必ず確認すること。
 // 無料枠はなく、Google Cloud側の課金設定が必要。
 const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image";
+
+// OpenAI 側の画像モデル。2026-04-21 公開の gpt-image-2 が現行で、images/edits に
+// 複数枚の入力画像を渡せる(顔+服を1回で渡せるということ)。モデル名は変わりやすいので、
+// 変更前に https://developers.openai.com/api/docs/models で最新の識別子を確認すること。
+const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
 
 interface ClosetItemDoc {
   imageUrl: string;
@@ -88,8 +127,15 @@ function sleep(ms: number): Promise<void> {
  * 何度作り直しても同じキーになる。プロフィール(personalHint)とモデル名も混ぜてあり、
  * 身長や骨格を変えた・モデルを切り替えた場合は自然に別キー=作り直しになる。
  */
-function cacheKeyFor(uid: string, itemImageUrls: string[], faceImageUrl: string, personalHint: string): string {
-  const payload = [GEMINI_IMAGE_MODEL, uid, faceImageUrl, ...[...itemImageUrls].sort(), personalHint].join("\n");
+function cacheKeyFor(
+  uid: string,
+  itemImageUrls: string[],
+  faceImageUrl: string,
+  personalHint: string,
+  provider: AiProvider
+): string {
+  // モデル名を混ぜてあるので、提供元を乗り換えた人は自然に別キー=作り直しになる。
+  const payload = [modelFor(provider), uid, faceImageUrl, ...[...itemImageUrls].sort(), personalHint].join("\n");
   return createHash("sha256").update(payload).digest("hex").slice(0, 40);
 }
 
@@ -105,9 +151,9 @@ async function composeCached(
   itemImageUrls: string[],
   faceImageUrl: string,
   personalHint: string,
-  apiKey: string
+  cred: AiCredential
 ): Promise<string> {
-  const key = cacheKeyFor(uid, itemImageUrls, faceImageUrl, personalHint);
+  const key = cacheKeyFor(uid, itemImageUrls, faceImageUrl, personalHint, cred.provider);
   const ref = db.collection("composedCache").doc(key);
 
   const first = await db.runTransaction(async (tx) => {
@@ -145,7 +191,7 @@ async function composeCached(
   }
 
   try {
-    const url = await composeWithGemini(itemImageUrls, faceImageUrl, uid, key, personalHint, apiKey);
+    const url = await composeWithAi(itemImageUrls, faceImageUrl, uid, key, personalHint, cred);
     await ref.set({ status: "ready", url, ownerUid: uid, updatedAt: Date.now() }, { merge: true });
     return url;
   } catch (err) {
@@ -298,13 +344,13 @@ export const composeOutfitImage = onCall<{ postId: string; candidateIndex: numbe
         profile = null;
       }
 
-      const apiKey = await requireUserGeminiKey(uid);
+      const cred = await requireUserAiKey(uid);
       const composedImageUrl = await composeCached(
         uid,
         itemImageUrls,
         faceImageUrl,
         buildPersonalHint(profile),
-        apiKey
+        cred
       );
       await patchCandidate(postRef, candidateIndex, { composedImageUrl, composeStatus: "ready" });
       return { composedImageUrl };
@@ -373,13 +419,13 @@ export const precomposeOutfit = onCall<{
       profile = null;
     }
 
-    const apiKey = await requireUserGeminiKey(uid);
+    const cred = await requireUserAiKey(uid);
     const composedImageUrl = await composeCached(
       uid,
       itemImageUrls,
       faceImageUrl,
       buildPersonalHint(profile),
-      apiKey
+      cred
     );
     return { composedImageUrl };
   }
@@ -429,24 +475,50 @@ async function fetchAsBase64(url: string): Promise<{ mimeType: string; data: str
   return { mimeType, data: buffer.toString("base64") };
 }
 
-async function composeWithGemini(
+// ---------- 合成本体 ----------
+//
+// 提供元が Google でも OpenAI でも、やることは同じ「顔1枚 + 服数枚 → 着用姿1枚」。
+// 違うのはHTTPの叩き方だけなので、指示文と保存はここで共通化し、
+// generateWith* だけを提供元ごとに分けている。
+
+const COMPOSE_INSTRUCTION =
+  "1枚目は人物の顔写真です。この人物の顔・髪型・雰囲気を保ったまま、2枚目以降に写っている服・靴・" +
+  "アクセサリーを実際に着用している様子を、自然な光でシンプルな背景の写真として1枚に合成してください。" +
+  "全身または上半身が分かる構図でお願いします。";
+
+interface GeneratedImage {
+  /** base64(データURLの接頭辞は含まない) */
+  data: string;
+  mimeType: string;
+}
+
+async function composeWithAi(
   itemImageUrls: string[],
   faceImageUrl: string,
   ownerUid: string,
   cacheKey: string,
   personalHint: string,
-  apiKey: string
+  cred: AiCredential
 ): Promise<string> {
+  // 顔を必ず先頭にする。OpenAI は「1枚目が主たる編集対象」という扱いなので順番に意味がある。
   const images = await Promise.all([faceImageUrl, ...itemImageUrls].map(fetchAsBase64));
+  const instruction = COMPOSE_INSTRUCTION + personalHint;
 
+  const generated =
+    cred.provider === "openai"
+      ? await generateWithOpenAI(images, instruction, cred.apiKey)
+      : await generateWithGemini(images, instruction, cred.apiKey);
+
+  return saveComposedImage(generated, ownerUid, cacheKey);
+}
+
+async function generateWithGemini(
+  images: GeneratedImage[],
+  instruction: string,
+  apiKey: string
+): Promise<GeneratedImage> {
   const parts: Record<string, unknown>[] = [
-    {
-      text:
-        "1枚目は人物の顔写真です。この人物の顔・髪型・雰囲気を保ったまま、2枚目以降に写っている服・靴・" +
-        "アクセサリーを実際に着用している様子を、自然な光でシンプルな背景の写真として1枚に合成してください。" +
-        "全身または上半身が分かる構図でお願いします。" +
-        personalHint,
-    },
+    { text: instruction },
     ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } })),
   ];
 
@@ -474,67 +546,146 @@ async function composeWithGemini(
   if (!inlinePart?.inlineData?.data) {
     throw new Error("Geminiから画像が返されませんでした。");
   }
+  return {
+    data: inlinePart.inlineData.data,
+    mimeType: inlinePart.inlineData.mimeType ?? "image/png",
+  };
+}
 
-  const buffer = Buffer.from(inlinePart.inlineData.data, "base64");
+/**
+ * OpenAI の images/edits。複数枚を `image[]` として multipart で送る
+ * (2026-08 時点で最大16枚。顔1 + 服数枚なので余裕がある)。
+ * 返りは常に base64 で `data[0].b64_json` に入る。
+ */
+async function generateWithOpenAI(
+  images: GeneratedImage[],
+  instruction: string,
+  apiKey: string
+): Promise<GeneratedImage> {
+  const form = new FormData();
+  form.append("model", OPENAI_IMAGE_MODEL);
+  form.append("prompt", instruction);
+  images.forEach((img, i) => {
+    const bytes = new Uint8Array(Buffer.from(img.data, "base64"));
+    const ext = img.mimeType.includes("png") ? "png" : "jpg";
+    form.append("image[]", new Blob([bytes], { type: img.mimeType }), `${i}.${ext}`);
+  });
+
+  const res = await fetch("https://api.openai.com/v1/images/edits", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+
+  if (!res.ok) {
+    throw new Error(`OpenAI API呼び出しに失敗しました (${res.status}): ${await res.text()}`);
+  }
+
+  const json = (await res.json()) as { data?: { b64_json?: string }[] };
+  const b64 = json.data?.[0]?.b64_json;
+  if (!b64) throw new Error("OpenAIから画像が返されませんでした。");
+  return { data: b64, mimeType: "image/png" };
+}
+
+/** 生成結果を Storage に置いて公開URLを返す。提供元によらず共通。 */
+async function saveComposedImage(
+  generated: GeneratedImage,
+  ownerUid: string,
+  cacheKey: string
+): Promise<string> {
+  const buffer = Buffer.from(generated.data, "base64");
   const bucket = getStorage().bucket();
   // キャッシュキーをそのままファイル名にする。同じ組み合わせは同じパスに落ち、
   // 投稿とは独立に(取り消し・作り直しをまたいで)使い回せる。
   const path = `composed/${ownerUid}/${cacheKey}.png`;
   const file = bucket.file(path);
-  await file.save(buffer, { contentType: inlinePart.inlineData.mimeType ?? "image/png" });
+  await file.save(buffer, { contentType: generated.mimeType });
   await file.makePublic();
   return `https://storage.googleapis.com/${bucket.name}/${path}`;
 }
 
-// ---------- verifyGeminiKey ----------
-// プロフィールで登録したキーがちゃんと使えるかを確かめる。
+// ---------- verifyAiKey ----------
+// 登録したキーがちゃんと使えるかを確かめる。
 //
-// ブラウザから直接 Gemini を叩いて確かめる手もあるが、その場合 CORS の可否に結果が
-// 左右されるうえ、キーをクライアントに読み戻す必要が出る。ここはサーバー側で
-// 保存済みのキーを使って確認し、**キーの中身をクライアントへ返さない**。
-export const verifyGeminiKey = onCall(
+// ブラウザから直接叩いて確かめる手もあるが、その場合 CORS の可否に結果が左右されるうえ、
+// キーをクライアントに読み戻す必要が出る。ここはサーバー側で保存済みのキーを使って確認し、
+// **キーの中身をクライアントへ返さない**。
+//
+// 実際に1枚生成すると本人に課金が発生してしまうので、確認は「モデルが引けるか」までに
+// とどめている(キーの有効性と権限はこれで分かる)。
+export const verifyAiKey = onCall(
   {
     region: FUNCTION_REGION,
     timeoutSeconds: 30,
     // composeOutfitImage と同じ理由(callable は Firebase SDK 側で認証を運ぶ)。
     invoker: "public",
   },
-  async (request): Promise<{ ok: boolean; message: string }> => {
+  async (request): Promise<{ ok: boolean; message: string; provider?: AiProvider }> => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "サインインが必要です。");
 
-    let apiKey: string;
+    let cred: AiCredential;
     try {
-      apiKey = await requireUserGeminiKey(uid);
+      cred = await requireUserAiKey(uid);
     } catch {
       return { ok: false, message: "APIキーが登録されていません。" };
     }
 
     try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}?key=${apiKey}`
-      );
-      if (res.ok) return { ok: true, message: "APIキーを確認しました。AI合成が使えます。" };
-
-      const body = await res.text();
-      if (res.status === 400 && body.includes("API_KEY_INVALID")) {
-        return { ok: false, message: "APIキーが正しくありません。もう一度コピーし直してください。" };
-      }
-      if (res.status === 403) {
-        return {
-          ok: false,
-          message: "このキーでは Gemini API を利用できません。Google AI Studio で有効になっているか確認してください。",
-        };
-      }
-      if (res.status === 404) {
-        return {
-          ok: false,
-          message: `画像生成モデル(${GEMINI_IMAGE_MODEL})にアクセスできません。キーに紐づくプロジェクトを確認してください。`,
-        };
-      }
-      return { ok: false, message: `確認できませんでした(HTTP ${res.status})。` };
+      return cred.provider === "openai"
+        ? { ...(await verifyOpenAIKey(cred.apiKey)), provider: cred.provider }
+        : { ...(await verifyGoogleKey(cred.apiKey)), provider: cred.provider };
     } catch {
-      return { ok: false, message: "Google に接続できませんでした。時間をおいてお試しください。" };
+      return { ok: false, message: "接続できませんでした。時間をおいてお試しください。" };
     }
   }
 );
+
+async function verifyGoogleKey(apiKey: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}?key=${apiKey}`
+  );
+  if (res.ok) return { ok: true, message: "APIキーを確認しました。AI合成が使えます。" };
+
+  const body = await res.text();
+  if (res.status === 400 && body.includes("API_KEY_INVALID")) {
+    return { ok: false, message: "APIキーが正しくありません。もう一度コピーし直してください。" };
+  }
+  if (res.status === 403) {
+    return {
+      ok: false,
+      message: "このキーでは Gemini API を利用できません。Google AI Studio で有効になっているか確認してください。",
+    };
+  }
+  if (res.status === 404) {
+    return {
+      ok: false,
+      message: `画像生成モデル(${GEMINI_IMAGE_MODEL})にアクセスできません。キーに紐づくプロジェクトを確認してください。`,
+    };
+  }
+  return { ok: false, message: `確認できませんでした(HTTP ${res.status})。` };
+}
+
+async function verifyOpenAIKey(apiKey: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch(`https://api.openai.com/v1/models/${OPENAI_IMAGE_MODEL}`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (res.ok) return { ok: true, message: "APIキーを確認しました。AI合成が使えます。" };
+
+  if (res.status === 401) {
+    return { ok: false, message: "APIキーが正しくありません。もう一度コピーし直してください。" };
+  }
+  if (res.status === 403) {
+    return {
+      ok: false,
+      message: "このキーでは画像生成を利用できません。OpenAI の権限設定を確認してください。",
+    };
+  }
+  if (res.status === 404) {
+    return {
+      ok: false,
+      message: `画像生成モデル(${OPENAI_IMAGE_MODEL})を利用できません。支払い方法の登録が済んでいるか確認してください。`,
+    };
+  }
+  return { ok: false, message: `確認できませんでした(HTTP ${res.status})。` };
+}
