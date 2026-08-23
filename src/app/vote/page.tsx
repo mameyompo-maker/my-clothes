@@ -185,6 +185,28 @@ export default function VoteListPage() {
           />
         ) : (
           <div className="space-y-8">
+            {/* 自分の2択を一番上に置く(Kazさん指示 2026-08-22)。
+                投稿した直後に自分の2択が見当たらないと「投稿できていないのでは」と
+                不安になる。まず自分のぶんを見せて、その下に他の人が流れてくる形にする。 */}
+            {myPosts.length > 0 && (
+              <section>
+                <h2 className="mb-3 text-sm font-bold">あなたの2択</h2>
+                <div className="space-y-4">
+                  {myPosts.map((post) => (
+                    <PostSummaryCard
+                      key={post.id}
+                      post={post}
+                      owner={profile ?? undefined}
+                      items={myItems}
+                      faces={myFaces}
+                      cta="結果を見る"
+                      isMine
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* フォローが5人以下のうちは、公式アカウントの2択が先頭を流れる。
                 フォローしていなくても投票できるので、まず参加してもらう。 */}
             <OfficialVotesPreview
@@ -212,24 +234,6 @@ export default function VoteListPage() {
               </section>
             )}
 
-            {myPosts.length > 0 && (
-              <section>
-                <h2 className="mb-3 text-sm font-bold">あなたの2択</h2>
-                <div className="space-y-4">
-                  {myPosts.map((post) => (
-                    <PostSummaryCard
-                      key={post.id}
-                      post={post}
-                      owner={profile ?? undefined}
-                      items={myItems}
-                      faces={myFaces}
-                      cta="結果を見る"
-                      isMine
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
           </div>
         )}
       </div>
